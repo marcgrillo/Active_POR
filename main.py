@@ -14,13 +14,13 @@ DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
 TARGET_METHODS = [
-    'BAYES_BT_BALD',
+    'BAYES_LIN_BALD',
     # 'BAYES_BT_US',
     # 'FTRL_BT_BALD',
 ] 
 
 # Shared Parameters
-HM = 1 # Number of Human Models to use for BOTH simulation and metrics
+HM = 10 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
 
 # ----------------------------------------------------------------------

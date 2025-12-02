@@ -171,6 +171,6 @@ if __name__ == "__main__":
     F3 = [25]
     
     # Example: 10% inconsistency
-    gen = DatasetGenerator(output_dir="datasets", n_runs=10)
+    gen = DatasetGenerator(output_dir="datasets", n_runs=200)
     gen.generate_batch(F1, F2, F3, target_inconsistency=0.0)
     gen.verify_consistency(F1, F2, F3)

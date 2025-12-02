@@ -2,6 +2,7 @@ import os
 import numpy as np
 from itertools import combinations
 from scipy.special import expit
+from scipy.stats import beta
 
 # ----------------------------------------------------------------------
 # Math & Transformation Utilities
@@ -23,21 +24,42 @@ def safe_inverse(M, jitter=1e-6):
     except np.linalg.LinAlgError:
         return np.linalg.pinv(M)
 
+
 def dirichlet_transform(u, alpha):
-    """Vectorized Inverse Dirichlet transform (Stick-breaking)."""
-    if np.any(u > 1) or np.any(u < 0):
-        u = np.clip(u, 1e-10, 1 - 1e-10)
-    km1 = len(u)
-    from scipy.stats import beta
-    # Reverse cumsum logic for stick breaking
-    beta_prime = np.cumsum(alpha[::-1])[::-1][1:]
-    v = beta.ppf(u, alpha[:km1], beta_prime)
-    x = np.zeros(km1 + 1)
-    cumprod = 1.0
-    for i in range(km1):
-        x[i] = v[i] * cumprod
-        cumprod *= (1 - v[i])
-    x[-1] = cumprod
+    N_pars = len(u)
+    u = u[:-1]
+    """
+    Vectorized Dirichlet prior transform via stick-breaking.
+    
+    Parameters
+    ----------
+    u : array-like, shape (K-1,)
+        Values in (0,1) from dynesty's unit cube.
+    alpha : array-like, shape (K,)
+        Dirichlet concentration parameters.
+    
+    Returns
+    -------
+    x : ndarray, shape (K,)
+        A point on the simplex drawn from Dir(alpha).
+    """
+
+    # Compute cumulative tail sums for Beta parameters
+    b = np.cumsum(alpha[::-1])[::-1][1:]  # [sum_{i=j+1..K} alpha_i]
+    a = alpha[:-1]
+
+    # Inverse CDF (vectorized)
+    v = beta.ppf(u, a, b)  # shape (K-1,)
+
+    # Compute cumulative product of (1 - v)
+    one_minus_v = 1.0 - v
+    cumprod_one_minus_v = np.cumprod(one_minus_v)
+
+    # Compute x components
+    x = np.empty(N_pars)
+    x[:-1] = v * np.concatenate(([1.0], cumprod_one_minus_v[:-1]))
+    x[-1] = cumprod_one_minus_v[-1]
+
     return x
 
 # ----------------------------------------------------------------------
