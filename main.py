@@ -1,0 +1,77 @@
+import numpy as np
+from experiments.runner import run_batch_experiments
+from experiments.metrics import BenchmarkRunner
+
+# ----------------------------------------------------------------------
+# Configuration
+# ----------------------------------------------------------------------
+
+# Experiment Parameters
+F1 = [30]       # Alternatives
+F2 = [4]        # Criteria
+F3 = [25]       # % of pairwise comparisons
+DATASET_FOLDS = ['datasets']
+
+# Algorithms to Benchmark
+TARGET_METHODS = [
+    'BAYES_BT_BALD',
+    # 'BAYES_BT_US',
+    # 'FTRL_BT_BALD',
+] 
+
+# Shared Parameters
+HM = 1 # Number of Human Models to use for BOTH simulation and metrics
+CALCULATE_METRICS = True
+
+# ----------------------------------------------------------------------
+# Helper
+# ----------------------------------------------------------------------
+
+def parse_subfold_string(s):
+    parts = s.split('_')
+    alg_str = f"{parts[0]}-{parts[1]}" 
+    active_str = parts[2]
+    return alg_str, active_str
+
+# ----------------------------------------------------------------------
+# Execution
+# ----------------------------------------------------------------------
+
+if __name__ == "__main__":
+    
+    # 1. Run Experiments
+    for sub_fold in TARGET_METHODS:
+        alg_name, active_method_name = parse_subfold_string(sub_fold)
+        print(f"\n>>> Running: {alg_name} with {active_method_name}")
+        
+        run_batch_experiments(
+            F1, F2, F3, 
+            sub_fold=sub_fold, 
+            dataset_folds=DATASET_FOLDS, 
+            alg=alg_name, 
+            active_method=active_method_name, 
+            overwrite=False,
+            hm=HM  # Pass the limit here
+        )
+        
+    # 2. Calculate Metrics
+    if CALCULATE_METRICS:
+        print("\n=== Calculating Metrics ===")
+        # Note: Using first F1/F2/F3 config for metric calculation setup
+        f1, f2, f3 = F1[0], F2[0], F3[0]
+        num_dm_dec = int(np.round(f3 * (f1 * (f1 - 1) / 200)))
+        
+        runner = BenchmarkRunner(
+            dataset_fold=DATASET_FOLDS[0],
+            sub_fold=TARGET_METHODS[0], # Metrics for first method in list
+            num_subint=3,
+            hm=HM, # Use same limit here
+            F1=F1, F2=F2, F3=F3,
+            num_dm_dec=num_dm_dec
+        )
+        
+        runner.compute_metrics("poi")
+        runner.compute_metrics("rai")
+        runner.compute_asrs()
+        runner.compute_aios()
+        runner.compute_asps()

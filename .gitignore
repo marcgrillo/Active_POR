@@ -1,0 +1,14 @@
+# Ignore large folders
+datasets/
+figs/
+oth/
+samples_datasets/
+tests_datasets/
+
+# Ignore temporary files
+__pycache__/
+*.pyc
+
+# Ignore virtual environment
+env/
+venv/
