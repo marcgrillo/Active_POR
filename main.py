@@ -14,13 +14,20 @@ DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
 TARGET_METHODS = [
-    'BAYES_LIN_BALD',
-    # 'BAYES_BT_US',
-    # 'FTRL_BT_BALD',
+    #'BAYES_LIN_BALD',
+    #'BAYES_BT_BALD',
+    #'FTRL_LIN_BALD',
+    #'FTRL_BT_BALD',
+    'BAYES_LIN_US',
+    #'BAYES_BT_US',
+    #'FTRL_LIN_US',
+    #'FTRL_BT_US',
+    #'FTRL_LIN_BALD+US',
+    #'BAYES_LIN_BALD+US',
 ] 
 
 # Shared Parameters
-HM = 10 # Number of Human Models to use for BOTH simulation and metrics
+HM = 20 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
 
 # ----------------------------------------------------------------------
@@ -70,8 +77,8 @@ if __name__ == "__main__":
             num_dm_dec=num_dm_dec
         )
         
-        runner.compute_metrics("poi")
-        runner.compute_metrics("rai")
-        runner.compute_asrs()
-        runner.compute_aios()
-        runner.compute_asps()
+        runner.compute_metrics("poi", force=CALCULATE_METRICS)
+        runner.compute_metrics("rai", force=CALCULATE_METRICS)
+        runner.compute_asrs(force=CALCULATE_METRICS)
+        runner.compute_aios(force=CALCULATE_METRICS)
+        runner.compute_asps(force=CALCULATE_METRICS)

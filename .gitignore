@@ -4,6 +4,7 @@ figs/
 oth/
 samples_datasets/
 tests_datasets/
+gitignore_files_inside/
 
 # Ignore temporary files
 __pycache__/

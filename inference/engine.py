@@ -82,7 +82,7 @@ class PreferenceSampler:
         """Prior transform for Dynesty sampling."""
         return gamma.ppf(u, a=self.gamma_alpha_bayes_bt, scale=self.gamma_beta_bayes_bt)
 
-    def run_nested(self, model='LIN', nlive=500):
+    def run_nested(self, model='LIN', nlive=500, dlz = 0.5):
         loglike = self.log_likelihood_bt if model == 'BT' else self.log_likelihood_lin
         ptform = self.ptform_gamma if model == 'BT' else self.ptform_diri
         
@@ -93,7 +93,7 @@ class PreferenceSampler:
             bound='multi',
             nlive=max(self.n_params * 5, nlive)
         )
-        sampler.run_nested(print_progress=False)
+        sampler.run_nested(print_progress=False, dlogz = dlz)
         return sampler.results.samples_equal()
 
     # ------------------------------------------------------------------
@@ -273,6 +273,26 @@ class PreferenceSampler:
             H_marginal = - (p_mean * np.log(p_mean) + (1-p_mean) * np.log(1-p_mean))
             E_H_conditional = np.mean(entropy_per_sample, axis=1)
             return H_marginal - E_H_conditional
+        
+        elif method == 'BALD+US':
+            # Calculate Conditional Entropy
+            p_mean = np.mean(probs, axis=1)
+            H_marginal = - (p_mean * np.log(p_mean) + (1-p_mean) * np.log(1-p_mean))
+            E_H_conditional = np.mean(entropy_per_sample, axis=1)
+            
+            # Calculate BALD term
+            term2 = H_marginal - E_H_conditional
+            
+            # Calculate Correlation
+            # We want correlation between (BALD score) and (Uncertainty) across candidates
+            correlation_matrix = np.corrcoef(term2, H_marginal)
+            
+            # Correlation matrix is [[1, corr], [corr, 1]]
+            # If off-diagonal element < 0, use H_marginal (US)
+            if correlation_matrix[0, 1] < 0:
+                return H_marginal
+            else:
+                return term2
 
 
     def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=200):
@@ -292,7 +312,7 @@ class PreferenceSampler:
                 if active_method == 'US':
                     # US: Use MAP point only
                     samples = np.atleast_2d(current_state)
-                else: 
+                elif active_method == 'BALD' or active_method == 'BALD+US': 
                     # BALD: Need Laplace Sampling
                     omega_map = current_state
                     Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
