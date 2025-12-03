@@ -5,11 +5,10 @@ from scipy.optimize import minimize
 from scipy.special import logsumexp, expit
 from scipy.stats import gamma
 import itertools
-import random
-import sys
+import time
 
 # Import from utils
-from common.utils import safe_inverse, robust_sigmoid, dirichlet_transform
+from common.utils import safe_inverse, robust_sigmoid, dirichlet_transform, get_line_angle
 
 class PreferenceSampler:
     """
@@ -230,6 +229,25 @@ class PreferenceSampler:
             samples = np.clip(raw_samples, 1e-9, 1.0)
             samples = samples / np.sum(samples, axis=1, keepdims=True)
             return samples
+        
+    def bald_mi_linear_appr(self, omega_map, Sigma, candidates, model_type):
+        # Vectors: (N_cand, D)
+        idx_a = [c[0] for c in candidates]
+        idx_b = [c[1] for c in candidates]
+        vec_diff = self.X[idx_a] - self.X[idx_b]
+
+        # Utilities: (N_cand, N_samples)
+        t = vec_diff @ omega_map
+        if model_type == 'BT': 
+            p = expit(t)
+            var = np.einsum('ij,jk,ik->i', vec_diff, Sigma, vec_diff)
+        elif model_type == 'LIN':  
+            p = 0.5 * (1.0 + t)
+            vec_diff_lin = 0.5 * ( 1 + vec_diff )
+            var = np.einsum('ij,jk,ik->i', vec_diff_lin, Sigma, vec_diff_lin)
+        p = np.clip(p, 1e-12, 1-1e-12)
+        mi = var / (2.0 * p * (1.0 - p))
+        return mi
 
     # ------------------------------------------------------------------
     # 4. Active Learning Logic (Unified)
@@ -243,7 +261,7 @@ class PreferenceSampler:
         idx_a = [c[0] for c in candidates]
         idx_b = [c[1] for c in candidates]
         vec_diff = self.X[idx_a] - self.X[idx_b]
-        
+
         # Utilities: (N_cand, N_samples)
         u_diff = vec_diff @ samples.T
         
@@ -272,27 +290,20 @@ class PreferenceSampler:
             p_mean = np.mean(probs, axis=1)
             H_marginal = - (p_mean * np.log(p_mean) + (1-p_mean) * np.log(1-p_mean))
             E_H_conditional = np.mean(entropy_per_sample, axis=1)
-            return H_marginal - E_H_conditional
+            mi = H_marginal - E_H_conditional
+            return mi
         
         elif method == 'BALD+US':
             # Calculate Conditional Entropy
             p_mean = np.mean(probs, axis=1)
             H_marginal = - (p_mean * np.log(p_mean) + (1-p_mean) * np.log(1-p_mean))
             E_H_conditional = np.mean(entropy_per_sample, axis=1)
-            
-            # Calculate BALD term
-            term2 = H_marginal - E_H_conditional
-            
-            # Calculate Correlation
-            # We want correlation between (BALD score) and (Uncertainty) across candidates
-            correlation_matrix = np.corrcoef(term2, H_marginal)
-            
-            # Correlation matrix is [[1, corr], [corr, 1]]
-            # If off-diagonal element < 0, use H_marginal (US)
-            if correlation_matrix[0, 1] < 0:
+            mi = H_marginal - E_H_conditional
+            angle = get_line_angle(H_marginal, mi)
+            if angle < 1:
                 return H_marginal
             else:
-                return term2
+                return mi
 
 
     def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=200):
@@ -304,31 +315,31 @@ class PreferenceSampler:
 
             algo_type, model_type = alg.split('-')
             full_alg_name = alg
-            
-            # 1. Prepare "Samples" from Input State
-            if algo_type == 'BAYES':
-                samples = current_state
-            elif algo_type == 'FTRL':
-                if active_method == 'US':
-                    # US: Use MAP point only
-                    samples = np.atleast_2d(current_state)
-                elif active_method == 'BALD' or active_method == 'BALD+US': 
-                    # BALD: Need Laplace Sampling
-                    omega_map = current_state
-                    Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
-                    # Pass full_alg_name to control clipping behavior
-                    samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
-            else:
-                raise ValueError(f"Unknown Algo: {algo_type}")
 
-            # 2. Generate Candidates
+            # 1. Generate Candidates
             possible_pairs = list(itertools.combinations(all_indices, 2))
             seen = set(tuple(x) for x in self.prefs)
             candidates = [p for p in possible_pairs if p not in seen and (p[1], p[0]) not in seen]
             
             if not candidates: return None
-
-            # 3. Score
-            scores = self._calculate_scores(candidates, samples, model_type, active_method)
+            
+            # 2. Calculate Scores
+            if algo_type == 'BAYES':
+                samples = current_state
+                scores = self._calculate_scores(candidates, samples, model_type, active_method)
+            elif algo_type == 'FTRL':
+                if active_method == 'US':
+                    # US: Use MAP point only
+                    samples = np.atleast_2d(current_state)
+                    scores = self._calculate_scores(candidates, samples, model_type, active_method)
+                elif active_method == 'BALD' or active_method == 'BALD+US': 
+                    # BALD: Need Laplace Sampling
+                    omega_map = current_state
+                    Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
+                    #samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
+                    #Use Taylor approximation for scores
+                    scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+            else:
+                raise ValueError(f"Unknown Algo: {algo_type}")
             
             return candidates[np.argmax(scores)]

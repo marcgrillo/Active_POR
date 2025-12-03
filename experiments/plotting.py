@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import os
 from scipy.stats import wilcoxon
 import common.utils as utils
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_fold=None, drop_index=None, save_figs=False, fig_name_prefix="figure"):
     """
@@ -146,3 +148,93 @@ def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=Non
         plt.savefig(os.path.join(save_dir, f"{fig_name_prefix}_wilcoxon_multi.png"), dpi=300)
     
     plt.show()
+
+def plot_var_cand(x, y, labels=None, save_path=None):
+    """
+    Plots mean and spread. 
+    Highlights max X (Red) and max Y (Green) and forces them to the top layer.
+    """
+    
+    # --- 1. Data Processing ---
+    X_mat = np.array(x)
+    Y_mat = np.array(y)
+    
+    if X_mat.shape != Y_mat.shape:
+        raise ValueError(f"Shape mismatch: x is {X_mat.shape}, y is {Y_mat.shape}")
+
+    # Calculate statistics
+    x_mean = np.nanmean(X_mat, axis=0)
+    y_mean = np.nanmean(Y_mat, axis=0)
+    x_err = np.nanstd(X_mat, axis=0)
+    y_err = np.nanstd(Y_mat, axis=0)
+    
+    # --- 2. Identify Indices ---
+    idx_max_x = np.argmax(x_mean)
+    idx_max_y = np.argmax(y_mean)
+    
+    # Create a list of indices excluding the special ones
+    all_indices = np.arange(len(x_mean))
+    mask_normal = (all_indices != idx_max_x) & (all_indices != idx_max_y)
+    
+    # --- 3. Plotting ---
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # A) Plot Error Bars for EVERYONE (Background layer)
+    # zorder=1: Lowest layer
+    ax.errorbar(x_mean, y_mean, xerr=x_err, yerr=y_err, 
+                fmt='none', ecolor='gray', alpha=0.5, capsize=3, zorder=1)
+
+    # B) Plot NORMAL points (Middle layer)
+    # zorder=2: Sits on top of lines, but below highlights
+    ax.scatter(x_mean[mask_normal], y_mean[mask_normal], 
+               s=60, c='tab:blue', edgecolors='black', label='Candidates', zorder=2)
+
+    # C) Plot SPECIAL points (Top layer)
+    # zorder=3: Sits on top of everything
+    # 1. Max X (Red)
+    ax.scatter(x_mean[idx_max_x], y_mean[idx_max_x], 
+               s=100, c='red', edgecolors='black', zorder=3)
+    
+    # 2. Max Y (Green)
+    # Note: If a point is BOTH max X and max Y, it will appear Green (drawn last)
+    ax.scatter(x_mean[idx_max_y], y_mean[idx_max_y], 
+               s=100, c='green', edgecolors='black', zorder=3)
+
+    # Annotations
+    if labels:
+        for i, txt in enumerate(labels):
+            # Check if this point is a highlighted one to give it bold text or different offset
+            is_highlight = (i == idx_max_x) or (i == idx_max_y)
+            font_weight = 'bold' if is_highlight else 'normal'
+            
+            ax.annotate(txt, (x_mean[i], y_mean[i]), 
+                        xytext=(5, 5), textcoords='offset points', 
+                        fontsize=9, weight=font_weight)
+
+    # Custom Legend
+    legend_handles = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='tab:blue', markeredgecolor='k', label='Candidates (Mean ± Std)'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markeredgecolor='k', label=f'Max H (idx {idx_max_x})'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markeredgecolor='k', label=f'Max MI (idx {idx_max_y})'),
+    ]
+    ax.legend(handles=legend_handles)
+
+    ax.set_title(f'Candidate Performance: Maxima Highlights ({X_mat.shape[0]} Reps)')
+    ax.set_xlabel('H')
+    ax.set_ylabel('MI')
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    # --- 4. Smart Save Logic ---
+    if save_path:
+        filename, extension = os.path.splitext(save_path)
+        counter = 1
+        
+        final_path = save_path
+        while os.path.exists(final_path):
+            final_path = f"{filename}_{counter}{extension}"
+            counter += 1
+            
+        plt.savefig(final_path, dpi=300, bbox_inches='tight')
+        print(f"Figure saved to: {final_path}")
+    
+    plt.close()

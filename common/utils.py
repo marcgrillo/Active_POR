@@ -3,6 +3,7 @@ import numpy as np
 from itertools import combinations
 from scipy.special import expit
 from scipy.stats import beta
+import numpy as np
 
 # ----------------------------------------------------------------------
 # Math & Transformation Utilities
@@ -61,6 +62,34 @@ def dirichlet_transform(u, alpha):
     x[-1] = cumprod_one_minus_v[-1]
 
     return x
+
+def get_line_angle(x, y):
+    """
+    Calculates the slope and angle of the best-fit line using 
+    optimized vector algebra (dot products).
+    
+    Returns:
+        slope (float)
+        angle_degrees (float)
+    """
+    # 1. Center the data (Remove the mean)
+    # This centers the cloud of points around (0,0)
+    x_centered = x - x.mean()
+    y_centered = y - y.mean()
+    
+    # 2. Calculate Slope (m)
+    # Formula: m = sum(x_centered * y_centered) / sum(x_centered^2)
+    # np.dot is significantly faster than .sum() for these operations
+    numerator = np.dot(x_centered, y_centered)
+    denominator = np.dot(x_centered, x_centered)
+    
+    m = numerator / denominator
+    
+    # 3. Convert to Degrees
+    # arctan returns radians, so we convert to degrees
+    angle = np.degrees(np.arctan(m))
+    
+    return angle
 
 # ----------------------------------------------------------------------
 # IO & Filesystem Utilities
