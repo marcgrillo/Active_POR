@@ -1,7 +1,8 @@
 import os
 import numpy as np
 from tqdm import tqdm
-from common.utils import save_path, read_dataset
+import itertools
+from common.utils import save_path, read_dataset, robust_sigmoid, parse_subfold_string
 from mcda.models import PiecewiseLinearTransformer
 
 class BenchmarkRunner:
@@ -62,6 +63,40 @@ class BenchmarkRunner:
             rank_count[np.arange(f1), ranks] += 1
             
         return rank_count / vals.shape[1]
+    
+    def calc_perc_inc(self, f1, t, sam, true_ranking):
+        """Percentage of Inconsistency: frequency of inconsistent rankings."""
+        alg_name, active_method_name = parse_subfold_string(self.sub_fold)
+        algo_type, model_type = alg_name.split('-')
+        all_indices = np.arange(f1)
+        possible_pairs = list(itertools.combinations(all_indices, 2))
+        candidates_unordered = [p for p in possible_pairs]
+        candidates = []
+        # Determine Correct Order
+        for cand in candidates_unordered:
+            rank_a = true_ranking[cand[0]]
+            rank_b = true_ranking[cand[1]]
+            if rank_a < rank_b:
+                correct_pair = np.array([cand[0], cand[1]])
+            else:
+                correct_pair = np.array([cand[1], cand[0]])
+            candidates.append(correct_pair)
+
+        # Vectors: (N_cand, D)
+        idx_a = [c[0] for c in candidates]
+        idx_b = [c[1] for c in candidates]
+        vec_diff = t[idx_a] - t[idx_b]
+
+        sam = np.atleast_2d(sam)
+        u_diff= vec_diff @ sam.T
+
+        probs = 0.5 * (1 + u_diff) if model_type == "LIN" else robust_sigmoid(u_diff)
+        p_mean= np.mean(probs, axis=1)
+
+        gotem = np.zeros(len(p_mean))
+        gotem[ np.random.rand(len(p_mean)) > p_mean ] = 1
+            
+        return np.sum(gotem)/len(gotem)
 
     # ----------------------------------------------------------------------
     # Main Computation Loop
@@ -69,8 +104,12 @@ class BenchmarkRunner:
 
     def compute_metrics(self, metric_type="poi", force=False):
         """Generic loop to compute POI or RAI and save to disk."""
-        metric_name = "pois" if metric_type == "poi" else "rais"
-        func = self.calc_poi if metric_type == "poi" else self.calc_rai
+        if metric_type == "poi":
+            metric_name = "pois" 
+            func = self.calc_poi
+        elif metric_type == "rai":
+            metric_name = "rais"
+            func = self.calc_rai
         
         out_fold = os.path.join(self.sub_tests_fold, metric_name)
         save_path(out_fold)
@@ -103,6 +142,41 @@ class BenchmarkRunner:
                                 np.save(path_act, func(f1, t_vec, sam_act))
                             except FileNotFoundError:
                                 pass
+
+    def compute_perc_inc(self, force=False):
+        metric_name = "perc_inc"
+        func = self.calc_perc_inc
+        
+        out_fold = os.path.join(self.sub_tests_fold, metric_name)
+        save_path(out_fold)
+        print(f"Calculating {metric_name}...")
+
+        for f1 in tqdm(self.F1):
+            for f2 in self.F2:
+                for f3 in self.F3:
+                    out_dir = os.path.join(out_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
+                    save_path(out_dir)
+                    tables, rankings, _, _ = read_dataset(self.dataset_fold, f1, f2, f3)
+                    for j in range(1, self.num_dm_dec + 1):
+                        path_std = os.path.join(out_dir, f"perc_inc_{j}.npy")
+                        path_act = os.path.join(out_dir, f"perc_inc_{j}_active.npy")
+                        perc_inc_std = []
+                        perc_inc_act = []
+                        for i in range(self.hm):
+                            transformer = PiecewiseLinearTransformer.from_equal_intervals(tables[i], self.num_subint)
+                            t_vec = transformer.transform(tables[i])
+                            if os.path.exists(path_std) and not force:
+                                continue
+                            try:
+                                sam = np.load(self._sample_path(f1, f2, f3, i, j, False))
+                                perc_inc_std.append( func(f1, t_vec, sam, rankings[i]) )
+
+                                sam_act = np.load(self._sample_path(f1, f2, f3, i, j, True))
+                                perc_inc_act.append( func(f1, t_vec, sam_act, rankings[i]) )
+                            except FileNotFoundError:
+                                pass
+                        np.save(path_std, perc_inc_std )
+                        np.save(path_act, perc_inc_act )
 
     # ----------------------------------------------------------------------
     # Aggregated Indices (ASRS, ASPS, AIOS)

@@ -178,6 +178,7 @@ def load_test_results(test_name: str, dataset_fold: str, sub_fold: str, num_dm_d
             path_active = os.path.join(sub_test_fold, f"{test_name}_active_{i}.npy")
 
         if not os.path.exists(path) or not os.path.exists(path_active):
+            print(path, "or", path_active, "not found. Skipping.")
             continue
 
         d = np.load(path)
@@ -189,3 +190,9 @@ def load_test_results(test_name: str, dataset_fold: str, sub_fold: str, num_dm_d
         return np.array([]), np.array([])
         
     return np.stack(loaded_data, axis=0), np.stack(loaded_data_active, axis=0)
+
+def parse_subfold_string(s):
+    parts = s.split('_')
+    alg_str = f"{parts[0]}-{parts[1]}" 
+    active_str = parts[2]
+    return alg_str, active_str

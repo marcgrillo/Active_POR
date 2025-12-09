@@ -1,6 +1,7 @@
 import numpy as np
 from experiments.runner import run_batch_experiments
 from experiments.metrics import BenchmarkRunner
+from common.utils import parse_subfold_string
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -29,16 +30,6 @@ TARGET_METHODS = [
 # Shared Parameters
 HM = 200 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
-
-# ----------------------------------------------------------------------
-# Helper
-# ----------------------------------------------------------------------
-
-def parse_subfold_string(s):
-    parts = s.split('_')
-    alg_str = f"{parts[0]}-{parts[1]}" 
-    active_str = parts[2]
-    return alg_str, active_str
 
 # ----------------------------------------------------------------------
 # Execution

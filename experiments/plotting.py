@@ -12,7 +12,7 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
     Plots Mean +/- 95% Confidence Interval and the Ratio of Active/Regular.
     """
     metric_name = metric_name.lower()
-    valid_metrics = ['asrs', 'asps', 'aios']
+    valid_metrics = ['asrs', 'asps', 'aios', 'perc_inc']
     if metric_name not in valid_metrics:
         raise ValueError(f"metric_name must be one of {valid_metrics}")
 
@@ -86,7 +86,7 @@ def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=Non
         sub_folds (list or str): A single sub_fold string or a list of sub_fold strings.
     """
     metric_name = metric_name.lower()
-    valid_metrics = ['asrs', 'asps', 'aios']
+    valid_metrics = ['asrs', 'asps', 'aios', 'perc_inc']
     if metric_name not in valid_metrics:
         raise ValueError(f"metric_name must be one of {valid_metrics}")
 
