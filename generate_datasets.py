@@ -166,8 +166,8 @@ class DatasetGenerator:
         return consistency
 
 if __name__ == "__main__":
-    F1 = [30]
-    F2 = [4]
+    F1 = [10]
+    F2 = [2]
     F3 = [100]
     
     # Example: 10% inconsistency

@@ -15,12 +15,12 @@ DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
 TARGET_METHODS = [
-    #'BAYES_LIN_BALD',
-    #'BAYES_BT_BALD',
+    'BAYES_LIN_BALD',
+    'BAYES_BT_BALD',
     'FTRL_LIN_BALD',
     'FTRL_BT_BALD',
-    #'BAYES_LIN_US',
-    #'BAYES_BT_US',
+    'BAYES_LIN_US',
+    'BAYES_BT_US',
     'FTRL_LIN_US',
     'FTRL_BT_US',
     #'FTRL_LIN_BALD+US',
@@ -41,6 +41,9 @@ if __name__ == "__main__":
     for sub_fold in TARGET_METHODS:
         alg_name, active_method_name = parse_subfold_string(sub_fold)
         print(f"\n>>> Running: {alg_name} with {active_method_name}")
+
+        algo_type, model_type = alg_name.split('-')
+        if alg_name == 'BAYES': HM = int(HM/10)
         
         run_batch_experiments(
             F1, F2, F3, 
@@ -60,6 +63,10 @@ if __name__ == "__main__":
         
         for sub_fold in TARGET_METHODS:
             alg_name, active_method_name = parse_subfold_string(sub_fold)
+
+            algo_type, model_type = alg_name.split('-')
+            if alg_name == 'BAYES': HM = int(HM/10)
+            
             print(f"\n=== Calculating Metrics for {alg_name} with {active_method_name} ===")
             runner = BenchmarkRunner(
                 dataset_fold=DATASET_FOLDS[0],
