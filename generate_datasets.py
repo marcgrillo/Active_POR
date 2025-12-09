@@ -168,7 +168,7 @@ class DatasetGenerator:
 if __name__ == "__main__":
     F1 = [30]
     F2 = [4]
-    F3 = [25]
+    F3 = [100]
     
     # Example: 10% inconsistency
     gen = DatasetGenerator(output_dir="datasets", n_runs=200)

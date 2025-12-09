@@ -164,8 +164,9 @@ class PreferenceSampler:
             Uses direct inversion with jitter (approximation) as requested.
             """
             # --- Safety: Clip omega ---
-            omega_map = np.clip(omega_map, 1e-9, 1.0 - 1e-9)
-            omega_map /= np.sum(omega_map)
+            if alg == 'FTRL-LIN':
+                omega_map += 1e-12
+                omega_map /= np.sum(omega_map)
             
             n, d = self.X_diff.shape
             t = self.X_diff.dot(omega_map)
@@ -182,7 +183,7 @@ class PreferenceSampler:
             elif alg == 'FTRL-LIN':
                 p = 0.5 * (1.0 + t)
                 p = np.clip(p, 1e-12, 1-1e-12)
-                W = 1.0 / (p * (1.0 - p))
+                W = 1 / (p**2)
                 prior_diag = self.lambda_dirichlet_ftrl_lin / (omega_map ** 2)
                 # LIN uses transformed vectors: 0.5 * (1 + diff)
                 X_outer = 0.5 * (1.0 + self.X_diff)
@@ -200,6 +201,7 @@ class PreferenceSampler:
             
             if not self._check_inverse(F, Sigma):
                 print('Inversion was not successful. Printing F and Sigma: \n', F, Sigma)
+                time.sleep(5)
 
             return Sigma
 
@@ -238,15 +240,28 @@ class PreferenceSampler:
 
         # Utilities: (N_cand, N_samples)
         t = vec_diff @ omega_map
+        
+        # 1. Compute Var(t) = x.T @ Sigma @ x
+        # This is the base variance of the latent score t
+        var_t = np.einsum('ij,jk,ik->i', vec_diff, Sigma, vec_diff)
+
         if model_type == 'BT': 
             p = expit(t)
-            var = np.einsum('ij,jk,ik->i', vec_diff, Sigma, vec_diff)
+            p = np.clip(p, 1e-12, 1-1e-12)
+            # Correct: MI approx 0.5 * p(1-p) * Var(t)
+            mi = 0.5 * p * (1.0 - p) * var_t
+            
         elif model_type == 'LIN':  
             p = 0.5 * (1.0 + t)
-            vec_diff_lin = 0.5 * ( 1 + vec_diff )
-            var = np.einsum('ij,jk,ik->i', vec_diff_lin, Sigma, vec_diff_lin)
-        p = np.clip(p, 1e-12, 1-1e-12)
-        mi = var / (2.0 * p * (1.0 - p))
+            p = np.clip(p, 1e-12, 1-1e-12)
+            
+            # 2. Convert Var(t) to Var(p)
+            # Since p = 0.5(1+t), Var(p) = 0.5^2 * Var(t) = 0.25 * var_t
+            var_p = 0.25 * var_t
+            
+            # Correct: MI approx 0.5 * Var(p) / (p(1-p))
+            mi = 0.5 * var_p / (p * (1.0 - p))
+            
         return mi
 
     # ------------------------------------------------------------------

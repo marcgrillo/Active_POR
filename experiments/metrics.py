@@ -113,14 +113,14 @@ class BenchmarkRunner:
         
         out_fold = os.path.join(self.sub_tests_fold, metric_name)
         save_path(out_fold)
-        print(f"Calculating {metric_name}...")
 
-        for f1 in tqdm(self.F1):
+        for f1 in self.F1:
             for f2 in self.F2:
                 for f3 in self.F3:
+                    print(f"Calculating {metric_name} for f1 = {f1}, f2 = {f2}, f3 = {f3} table:")
                     tables, _, _, _ = read_dataset(self.dataset_fold, f1, f2, f3)
                     
-                    for i in range(self.hm):
+                    for i in tqdm( range(self.hm) ):
                         table_dir = os.path.join(out_fold, f"f1_{f1}_f2_{f2}_f3_{f3}", f"table_{i}")
                         save_path(table_dir)
 
@@ -149,24 +149,23 @@ class BenchmarkRunner:
         
         out_fold = os.path.join(self.sub_tests_fold, metric_name)
         save_path(out_fold)
-        print(f"Calculating {metric_name}...")
 
-        for f1 in tqdm(self.F1):
+        for f1 in self.F1:
             for f2 in self.F2:
                 for f3 in self.F3:
+                    print(f"Calculating {metric_name} for f1 = {f1}, f2 = {f2}, f3 = {f3} dm_pref_num:")
                     out_dir = os.path.join(out_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
                     save_path(out_dir)
                     tables, rankings, _, _ = read_dataset(self.dataset_fold, f1, f2, f3)
-                    for j in range(1, self.num_dm_dec + 1):
+                    for j in tqdm( range(1, self.num_dm_dec + 1) ):
                         path_std = os.path.join(out_dir, f"perc_inc_{j}.npy")
                         path_act = os.path.join(out_dir, f"perc_inc_{j}_active.npy")
+                        if os.path.exists(path_std) and not force: continue
                         perc_inc_std = []
                         perc_inc_act = []
                         for i in range(self.hm):
                             transformer = PiecewiseLinearTransformer.from_equal_intervals(tables[i], self.num_subint)
                             t_vec = transformer.transform(tables[i])
-                            if os.path.exists(path_std) and not force:
-                                continue
                             try:
                                 sam = np.load(self._sample_path(f1, f2, f3, i, j, False))
                                 perc_inc_std.append( func(f1, t_vec, sam, rankings[i]) )
@@ -189,15 +188,15 @@ class BenchmarkRunner:
         rais_fold = os.path.join(self.sub_tests_fold, "rais")
         save_path(out_fold)
 
-        print(f"Calculating {test_name}...")
-        for f1 in tqdm(self.F1):
+        for f1 in self.F1:
             for f2 in self.F2:
                 for f3 in self.F3:
+                    print(f"Calculating {test_name} for f1 = {f1}, f2 = {f2}, f3 = {f3} dm_pref_num:")
                     _, rankings, _, _ = read_dataset(self.dataset_fold, f1, f2, f3)
                     sub_out = os.path.join(out_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
                     save_path(sub_out)
 
-                    for j in range(1, self.num_dm_dec + 1):
+                    for j in tqdm( range(1, self.num_dm_dec + 1) ):
                         p_std = os.path.join(sub_out, f"{test_name}_{j}.npy")
                         p_act = os.path.join(sub_out, f"{test_name}_active_{j}.npy")
 
@@ -226,15 +225,15 @@ class BenchmarkRunner:
         pois_fold = os.path.join(self.sub_tests_fold, "pois")
         save_path(out_fold)
 
-        print(f"Calculating {test_name}...")
-        for f1 in tqdm(self.F1):
+        for f1 in self.F1:
             for f2 in self.F2:
                 for f3 in self.F3:
+                    print(f"Calculating {test_name} for f1 = {f1}, f2 = {f2}, f3 = {f3} dm_pref_num:")
                     _, rankings, _, _ = read_dataset(self.dataset_fold, f1, f2, f3)
                     sub_out = os.path.join(out_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
                     save_path(sub_out)
 
-                    for j in range(1, self.num_dm_dec + 1):
+                    for j in tqdm( range(1, self.num_dm_dec + 1) ):
                         p_std = os.path.join(sub_out, f"{test_name}_{j}.npy")
                         # ASPS saves active in same file logic or separate? Usually separate.
                         # Original gentests used same logic.
@@ -264,15 +263,15 @@ class BenchmarkRunner:
         rais_fold = os.path.join(self.sub_tests_fold, "rais")
         save_path(out_fold)
 
-        print(f"Calculating {test_name}...")
-        for f1 in tqdm(self.F1):
+        for f1 in self.F1:
             for f2 in self.F2:
                 for f3 in self.F3:
+                    print(f"Calculating {test_name} for f1 = {f1}, f2 = {f2}, f3 = {f3} dm_pref_num:")
                     _, rankings, _, _ = read_dataset(self.dataset_fold, f1, f2, f3)
                     sub_out = os.path.join(out_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
                     save_path(sub_out)
 
-                    for j in range(1, self.num_dm_dec + 1):
+                    for j in tqdm( range(1, self.num_dm_dec + 1) ):
                         p_std = os.path.join(sub_out, f"{test_name}_{j}.npy")
                         p_act = os.path.join(sub_out, f"{test_name}_active_{j}.npy") # Explicit separate path for consistency
 

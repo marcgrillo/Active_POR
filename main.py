@@ -10,7 +10,7 @@ from common.utils import parse_subfold_string
 # Experiment Parameters
 F1 = [30]       # Alternatives
 F2 = [4]        # Criteria
-F3 = [25]       # % of pairwise comparisons
+F3 = [100]       # % of pairwise comparisons
 DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
@@ -18,12 +18,12 @@ TARGET_METHODS = [
     #'BAYES_LIN_BALD',
     #'BAYES_BT_BALD',
     'FTRL_LIN_BALD',
-    #'FTRL_BT_BALD',
+    'FTRL_BT_BALD',
     #'BAYES_LIN_US',
     #'BAYES_BT_US',
     'FTRL_LIN_US',
-    #'FTRL_BT_US',
-    'FTRL_LIN_BALD+US',
+    'FTRL_BT_US',
+    #'FTRL_LIN_BALD+US',
     #'BAYES_LIN_BALD+US',
 ] 
 
@@ -69,7 +69,7 @@ if __name__ == "__main__":
                 F1=F1, F2=F2, F3=F3,
                 num_dm_dec=num_dm_dec
             )
-            
+            runner.compute_perc_inc(force=CALCULATE_METRICS)
             runner.compute_metrics("poi", force=CALCULATE_METRICS)
             runner.compute_metrics("rai", force=CALCULATE_METRICS)
             runner.compute_asrs(force=CALCULATE_METRICS)

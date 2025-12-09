@@ -64,7 +64,7 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
     # --- Plot 2: Ratio ---
     ratio = np.divide(mean_active, mean, out=np.ones_like(mean_active), where=mean != 0)
     
-    plt.figure(figsize=(10, 6))
+    """plt.figure(figsize=(10, 6))
     plt.plot(x, ratio, label="Active / Regular", color="purple")
     plt.axhline(y=1, color="black", linestyle="--", linewidth=1)
     plt.xlabel("Number of DM Preferences", fontsize=12)
@@ -75,9 +75,9 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
     plt.tight_layout()
     if save_figs:
         plt.savefig(os.path.join(save_dir, f"{fig_name_prefix}_ratio.png"), dpi=300)
-    plt.show()
+    plt.show()"""
 
-def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_folds=None, drop_index=None, save_figs=False, fig_name_prefix="figure"):
+def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_folds=None, drop_index=None, alternative = 'greater', save_figs=False, fig_name_prefix="figure"):
     """
     Performs the Wilcoxon signed-rank test between Active and Regular strategies 
     at each step and plots the p-values for multiple sub_folds.
@@ -122,7 +122,7 @@ def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=Non
                 p_values.append(1.0)
             else:
                 try:
-                    res = wilcoxon(act_scores, reg_scores, alternative='two-sided')
+                    res = wilcoxon(act_scores, y = reg_scores, alternative = alternative)
                     p_values.append(res.pvalue)
                 except ValueError:
                     p_values.append(1.0)
