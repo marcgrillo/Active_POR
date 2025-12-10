@@ -15,14 +15,14 @@ DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
 TARGET_METHODS = [
-    'BAYES_LIN_BALD',
+    #'BAYES_LIN_BALD',
     'BAYES_BT_BALD',
-    'FTRL_LIN_BALD',
-    'FTRL_BT_BALD',
-    'BAYES_LIN_US',
-    'BAYES_BT_US',
-    'FTRL_LIN_US',
-    'FTRL_BT_US',
+    #'FTRL_LIN_BALD',
+    #'FTRL_BT_BALD',
+    #'BAYES_LIN_US',
+    #'BAYES_BT_US',
+    #'FTRL_LIN_US',
+    #'FTRL_BT_US',
     #'FTRL_LIN_BALD+US',
     #'BAYES_LIN_BALD+US',
 ] 

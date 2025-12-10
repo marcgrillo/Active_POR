@@ -53,7 +53,7 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
 
     plt.xlabel("Number of DM Preferences", fontsize=12)
     plt.ylabel(metric_name.upper(), fontsize=12)
-    plt.title(f"{metric_name.upper()} Evolution (N={n_samples})", fontsize=14)
+    plt.title(f"{sub_fold} Evolution (N={n_samples})", fontsize=14)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend()
     plt.tight_layout()
