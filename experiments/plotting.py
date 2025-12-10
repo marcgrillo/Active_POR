@@ -58,13 +58,13 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
     plt.legend()
     plt.tight_layout()
     if save_figs:
-        plt.savefig(os.path.join(save_dir, f"{fig_name_prefix}_mean_std.png"), dpi=300)
+        plt.savefig(os.path.join(save_dir, f"{sub_fold}_mean_std.png"), dpi=300)
     plt.show()
 
-    # --- Plot 2: Ratio ---
+    """# --- Plot 2: Ratio ---
     ratio = np.divide(mean_active, mean, out=np.ones_like(mean_active), where=mean != 0)
     
-    """plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 6))
     plt.plot(x, ratio, label="Active / Regular", color="purple")
     plt.axhline(y=1, color="black", linestyle="--", linewidth=1)
     plt.xlabel("Number of DM Preferences", fontsize=12)
@@ -145,7 +145,7 @@ def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=Non
     save_dir = os.path.join("figs", metric_name)
     if save_figs:
         os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(os.path.join(save_dir, f"{fig_name_prefix}_wilcoxon_multi.png"), dpi=300)
+        plt.savefig(os.path.join(save_dir, f"{'_'.join(sub_fold.split('_')[:-1])}_wilcoxon_multi.png"), dpi=300)
     
     plt.show()
 
