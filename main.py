@@ -8,8 +8,8 @@ from common.utils import parse_subfold_string
 # ----------------------------------------------------------------------
 
 # Experiment Parameters
-F1 = [30]       # Alternatives
-F2 = [4]        # Criteria
+F1 = [10]       # Alternatives
+F2 = [2]        # Criteria
 F3 = [100]       # % of pairwise comparisons
 DATASET_FOLDS = ['datasets']
 
@@ -28,7 +28,7 @@ TARGET_METHODS = [
 ] 
 
 # Shared Parameters
-HM = 200 # Number of Human Models to use for BOTH simulation and metrics
+HM_0 = 200 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
 
 # ----------------------------------------------------------------------
@@ -43,7 +43,8 @@ if __name__ == "__main__":
         print(f"\n>>> Running: {alg_name} with {active_method_name}")
 
         algo_type, model_type = alg_name.split('-')
-        if alg_name == 'BAYES': HM = int(HM/10)
+        if algo_type == 'BAYES': HM = int(HM_0/10)
+        else: HM = HM_0
         
         run_batch_experiments(
             F1, F2, F3, 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
 
             algo_type, model_type = alg_name.split('-')
             if alg_name == 'BAYES': HM = int(HM/10)
-            
+
             print(f"\n=== Calculating Metrics for {alg_name} with {active_method_name} ===")
             runner = BenchmarkRunner(
                 dataset_fold=DATASET_FOLDS[0],
