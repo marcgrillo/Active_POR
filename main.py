@@ -8,27 +8,27 @@ from common.utils import parse_subfold_string
 # ----------------------------------------------------------------------
 
 # Experiment Parameters
-F1 = [10]       # Alternatives
-F2 = [2]        # Criteria
+F1 = [50]       # Alternatives
+F2 = [10]        # Criteria
 F3 = [100]       # % of pairwise comparisons
 DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
 TARGET_METHODS = [
     #'BAYES_LIN_BALD',
-    'BAYES_BT_BALD',
+    #'BAYES_BT_BALD',
     #'FTRL_LIN_BALD',
-    #'FTRL_BT_BALD',
+    'FTRL_BT_BALD',
     #'BAYES_LIN_US',
     #'BAYES_BT_US',
     #'FTRL_LIN_US',
-    #'FTRL_BT_US',
+    'FTRL_BT_US',
     #'FTRL_LIN_BALD+US',
     #'BAYES_LIN_BALD+US',
 ] 
 
 # Shared Parameters
-HM_0 = 200 # Number of Human Models to use for BOTH simulation and metrics
+HM_0 = 100 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
 
 # ----------------------------------------------------------------------
@@ -57,6 +57,7 @@ if __name__ == "__main__":
         )
         
     # 2. Calculate Metrics
+    force = False
     if CALCULATE_METRICS:
         # Note: Using first F1/F2/F3 config for metric calculation setup
         f1, f2, f3 = F1[0], F2[0], F3[0]
@@ -77,9 +78,9 @@ if __name__ == "__main__":
                 F1=F1, F2=F2, F3=F3,
                 num_dm_dec=num_dm_dec
             )
-            runner.compute_perc_inc(force=CALCULATE_METRICS)
-            runner.compute_metrics("poi", force=CALCULATE_METRICS)
-            runner.compute_metrics("rai", force=CALCULATE_METRICS)
-            runner.compute_asrs(force=CALCULATE_METRICS)
-            runner.compute_aios(force=CALCULATE_METRICS)
-            runner.compute_asps(force=CALCULATE_METRICS)
+            runner.compute_perc_inc(force=force)
+            runner.compute_metrics("poi", force=force)
+            runner.compute_metrics("rai", force=force)
+            runner.compute_asrs(force=force)
+            runner.compute_aios(force=force)
+            runner.compute_asps(force=force)
