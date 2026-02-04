@@ -5,6 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 import matplotlib.pyplot as plt
+import json
 from scipy.optimize import nnls
 from tqdm import tqdm
 from common import utils
@@ -87,9 +88,10 @@ def evaluate_pwl(transformer, w, f2, num_intervals=3, resolution=100):
         
     return curves
 
-def plot_marginal_comparison(transformer, w_star, w_inferred, f2, save_path, title_suffix=""):
+def plot_marginal_comparison(transformer, w_star, w_inferred, f2, save_path, title_suffix="", true_w=None, true_params=None, utility_type='exponential'):
     """
     Plots Best-Fit vs Inferred Marginal Utilities.
+    If true_w and true_params are provided, plots the True function.
     """
     curves_star = evaluate_pwl(transformer, w_star, f2)
     curves_inf = evaluate_pwl(transformer, w_inferred, f2)
@@ -100,14 +102,37 @@ def plot_marginal_comparison(transformer, w_star, w_inferred, f2, save_path, tit
     for j in range(f2):
         ax = axes[j]
         
-        # Plot Best Fit
+        # Plot Best Fit PWL (Approximation)
         x_star, y_star = curves_star[j]
-        ax.plot(x_star, y_star, 'k--', linewidth=2, label='Best Fit (Truth)')
+        ax.plot(x_star, y_star, 'k--', linewidth=2, label='Best Fit PWL', alpha=0.7)
         
-        # Plot Inferred
+        # Plot Inferred PWL
         x_inf, y_inf = curves_inf[j]
-        ax.plot(x_inf, y_inf, 'r-', linewidth=2, label='Inferred')
+        ax.plot(x_inf, y_inf, 'r-', linewidth=2, label='Inferred PWL')
         
+        # Plot True Analytical (if available and exponential)
+        if utility_type == 'exponential' and true_w is not None and true_params is not None:
+             w_j = true_w[j]
+             c_j = true_params[j]
+             
+             # Assuming domain 0-1 for plotting logic (since features are normalized usually?)
+             # Wait, transformer.ch_p has real values.
+             # We should plot over the range [min, max] of the criterion.
+             min_val = x_star[0]
+             max_val = x_star[-1]
+             x_plot = np.linspace(min_val, max_val, 100)
+             
+             # Formula: y = w_j * (1 - exp(-c * x)) / (1 - exp(-c))
+             # BUT: The dataset generation used `1 - exp(-c_j * data_matrix)`. 
+             # Does it assume data is 0-1? 
+             # `generate_datasets.py` uses `ls = np.random.rand(f1, f2)`. Yes, data is 0-1.
+             
+             # So min_val approx 0, max_val approx 1.
+             term_denom = 1 - np.exp(-c_j)
+             y_true = w_j * (1 - np.exp(-c_j * x_plot)) / term_denom
+             
+             ax.plot(x_plot, y_true, 'g:', linewidth=2.5, label='True Exponential')
+
         ax.set_title(f"Criterion {j+1}")
         ax.grid(True, alpha=0.3)
         if j == 0:
@@ -139,8 +164,40 @@ if __name__ == "__main__":
                 if Us is None:
                     print("No True Utilities found (Us.csv), cannot compute distance.")
                     continue
+
+                # Load Generation Params to know utility type
+                gen_params_path = os.path.join(DATASET_FOLD, "generation_params.json")
+                utility_type = 'exponential' # Default
+                if os.path.exists(gen_params_path):
+                    with open(gen_params_path, 'r') as f:
+                        gp = json.load(f)
+                        utility_type = gp.get("utility_type", "exponential")
+                
+                # Load True Params (c) if exponential
+                true_params = None
+                if utility_type == 'exponential':
+                    base_name = f"f1_{f1}__f2_{f2}__ndm" # Partial match
+                    # Find the full filename roughly or construct it
+                    # The script saves as base_name + "params.csv"
+                    # We need to know num_dm_dec to construct filename exactly, which we calculate below
+                    pass # Will load after calculating num_dm_dec
                 
                 num_dm_dec = int(np.round(f3 * (f1 * (f1 - 1) / 200)))
+                
+                # Load weights and params
+                try:
+                    base_name = f"f1_{f1}__f2_{f2}__ndm_{num_dm_dec}"
+                    w_path = os.path.join(DATASET_FOLD, f"{base_name}weights.csv")
+                    true_weights_all = np.loadtxt(w_path)
+                    
+                    true_params_all = None
+                    if utility_type == 'exponential':
+                        p_path = os.path.join(DATASET_FOLD, f"{base_name}params.csv")
+                        if os.path.exists(p_path):
+                            true_params_all = np.loadtxt(p_path)
+                except Exception as e:
+                    print(f"Error loading extra params: {e}")
+                    true_weights_all = None
                 
                 # 2. Iterate Methods
                 for sub_fold in TARGET_METHODS:
@@ -188,13 +245,21 @@ if __name__ == "__main__":
                         # C. Qualitative Plot (Only for first HM)
                         if i == 0 and w_final_inferred is not None:
                             plot_name = f"marginals_{sub_fold}_f1{f1}f2{f2}_HM{i}.png"
+                            
+                            # Get true w and params for this HM
+                            t_w = true_weights_all[i] if true_weights_all is not None else None
+                            t_p = true_params_all[i] if true_params_all is not None else None
+                            
                             plot_marginal_comparison(
                                 transformer, 
                                 w_star, 
                                 w_final_inferred, 
                                 f2, 
                                 os.path.join(OUTPUT_DIR, plot_name),
-                                title_suffix=f"({alg_name}, HM {i}, Final Step)"
+                                title_suffix=f"({alg_name}, HM {i}, Final Step)",
+                                true_w=t_w,
+                                true_params=t_p,
+                                utility_type=utility_type
                             )
 
                     # 4. Aggregate & Plot Distances

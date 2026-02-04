@@ -226,7 +226,7 @@ class DatasetGenerator:
                     
                     num_dm_dec = int(np.round(f3 * len(all_couples) / 100))
                     
-                    lss_batch, ranks_prefs_batch, Us_batch, Weights_batch = [], [], [], []
+                    lss_batch, ranks_prefs_batch, Us_batch, Weights_batch, Params_batch = [], [], [], [], []
                     
                     for i in range(self.n_runs):
                         ls = np.random.rand(f1, f2)
@@ -234,6 +234,7 @@ class DatasetGenerator:
                             U, w, params = self._generate_piecewise_linear_utility(ls, f2, num_intervals)
                         else:
                             U, w, params = self._generate_exponential_utility(ls, f2)
+                            Params_batch.append(params)
                         
                         rk = self._compute_rank(U)
                         
@@ -283,6 +284,9 @@ class DatasetGenerator:
                     np.savetxt(os.path.join(self.output_dir, f"{base_name}rank+preferences.csv"), np.vstack(ranks_prefs_batch))
                     np.savetxt(os.path.join(self.output_dir, f"{base_name}Us.csv"), np.vstack(Us_batch))
                     np.savetxt(os.path.join(self.output_dir, f"{base_name}weights.csv"), np.vstack(Weights_batch))
+                    
+                    if utility_type == 'exponential' and Params_batch:
+                         np.savetxt(os.path.join(self.output_dir, f"{base_name}params.csv"), np.vstack(Params_batch))
 
         # --- Save Parameters to JSON ---
         params_file = os.path.join(self.output_dir, "generation_params.json")
