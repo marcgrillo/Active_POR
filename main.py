@@ -8,8 +8,8 @@ from common.utils import parse_subfold_string
 # ----------------------------------------------------------------------
 
 # Experiment Parameters
-F1 = [50]       # Alternatives
-F2 = [10]        # Criteria
+F1 = [30]       # Alternatives
+F2 = [4]        # Criteria
 F3 = [100]       # % of pairwise comparisons
 DATASET_FOLDS = ['datasets']
 
@@ -22,14 +22,16 @@ TARGET_METHODS = [
     #'BAYES_LIN_US',
     #'BAYES_BT_US',
     #'FTRL_LIN_US',
-    'FTRL_BT_US',
+    #'FTRL_BT_US',
     #'FTRL_LIN_BALD+US',
     #'BAYES_LIN_BALD+US',
 ] 
 
 # Shared Parameters
-HM_0 = 100 # Number of Human Models to use for BOTH simulation and metrics
+HM_0 = 3 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
+OVERWRITE = True
+FORCE_METRICS = True
 
 # ----------------------------------------------------------------------
 # Execution
@@ -52,12 +54,12 @@ if __name__ == "__main__":
             dataset_folds=DATASET_FOLDS, 
             alg=alg_name, 
             active_method=active_method_name, 
-            overwrite=False,
+            overwrite=OVERWRITE,
             hm=HM  # Pass the limit here
         )
         
     # 2. Calculate Metrics
-    force = False
+    force = FORCE_METRICS
     if CALCULATE_METRICS:
         # Note: Using first F1/F2/F3 config for metric calculation setup
         f1, f2, f3 = F1[0], F2[0], F3[0]

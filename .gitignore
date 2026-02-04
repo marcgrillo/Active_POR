@@ -5,6 +5,7 @@ oth/
 samples_datasets/
 tests_datasets/
 gitignore_files_inside/
+plots_analysis/
 
 # Ignore temporary files
 __pycache__/
