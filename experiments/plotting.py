@@ -6,7 +6,7 @@ import common.utils as utils
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_fold=None, drop_index=None, save_figs=False, fig_name_prefix="figure"):
+def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_fold=None, drop_index=None, save_figs=False, show_figs=True, fig_name_prefix="figure"):
     """
     Generic plotting function for ASRS, ASPS, or AIOS results.
     Plots Mean +/- 95% Confidence Interval and the Ratio of Active/Regular.
@@ -59,7 +59,10 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
     plt.tight_layout()
     if save_figs:
         plt.savefig(os.path.join(save_dir, f"{sub_fold}_mean_std.png"), dpi=300)
-    plt.show()
+    
+    if show_figs:
+        plt.show()
+    plt.close()
 
     """# --- Plot 2: Ratio ---
     ratio = np.divide(mean_active, mean, out=np.ones_like(mean_active), where=mean != 0)
@@ -77,7 +80,7 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
         plt.savefig(os.path.join(save_dir, f"{fig_name_prefix}_ratio.png"), dpi=300)
     plt.show()"""
 
-def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_folds=None, drop_index=None, alternative = 'greater', save_figs=False, fig_name_prefix="figure"):
+def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=None, sub_folds=None, drop_index=None, alternative = 'greater', save_figs=False, show_figs=True, fig_name_prefix="figure"):
     """
     Performs the Wilcoxon signed-rank test between Active and Regular strategies 
     at each step and plots the p-values for multiple sub_folds.
@@ -147,7 +150,9 @@ def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=Non
         os.makedirs(save_dir, exist_ok=True)
         plt.savefig(os.path.join(save_dir, f"{'_'.join(sub_fold.split('_')[:-1])}_wilcoxon_multi.png"), dpi=300)
     
-    plt.show()
+    if show_figs:
+        plt.show()
+    plt.close()
 
 def plot_var_cand(x, y, labels=None, save_path=None):
     """

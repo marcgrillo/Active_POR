@@ -2,6 +2,7 @@ import numpy as np
 from experiments.runner import run_batch_experiments
 from experiments.metrics import BenchmarkRunner
 from common.utils import parse_subfold_string
+from experiments.plotting import plot_metric_results
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -28,10 +29,11 @@ TARGET_METHODS = [
 ] 
 
 # Shared Parameters
-HM_0 = 3 # Number of Human Models to use for BOTH simulation and metrics
+HM_0 = 2 # Number of Human Models to use for BOTH simulation and metrics
 CALCULATE_METRICS = True
 OVERWRITE = True
 FORCE_METRICS = True
+GENERATE_PLOTS = True
 
 # ----------------------------------------------------------------------
 # Execution
@@ -86,3 +88,35 @@ if __name__ == "__main__":
             runner.compute_asrs(force=force)
             runner.compute_aios(force=force)
             runner.compute_asps(force=force)
+
+    # 3. Generate Plots
+    if GENERATE_PLOTS:
+        f1, f2, f3 = F1[0], F2[0], F3[0]
+        num_dm_dec = int(np.round(f3 * (f1 * (f1 - 1) / 200)))
+        
+        metrics_to_plot = ['perc_inc', 'asrs', 'asps', 'aios']
+        
+        for sub_fold in TARGET_METHODS:
+            alg_name, active_method_name = parse_subfold_string(sub_fold)
+            
+            # Determine HM for plotting (should match what was used for metrics)
+            algo_type, model_type = alg_name.split('-')
+            if algo_type == 'BAYES': HM = int(HM_0/10)
+            else: HM = HM_0
+
+            print(f"\n=== Generating Plots for {alg_name} with {active_method_name} ===")
+            
+            for metric in metrics_to_plot:
+                try:
+                    plot_metric_results(
+                        metric_name=metric,
+                        F1=F1, F2=F2, F3=F3,
+                        hm=HM,
+                        num_dm_dec=num_dm_dec,
+                        dataset_fold=DATASET_FOLDS[0],
+                        sub_fold=sub_fold,
+                        save_figs=True,
+                        show_figs=False
+                    )
+                except Exception as e:
+                    print(f"Failed to plot {metric} for {sub_fold}: {e}")
