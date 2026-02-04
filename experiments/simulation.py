@@ -71,6 +71,9 @@ def process_single_table(
             sampler_active = PreferenceSampler(feature_matrix, [], transformer.total_params)
 
     # 3. Main Loop
+    # Build lookup for consistency: frozenset({a,b}) -> [Winner, Loser]
+    pref_lookup = {frozenset(pair): pair for pair in ground_truth_prefs}
+
     for j in tqdm(range(1, num_steps + 1), desc="  Constraints", leave=False):
         path_passive = os.path.join(output_dir, f"{j}.npy")
         path_active = os.path.join(output_dir, f"{j}_active.npy")
@@ -110,23 +113,31 @@ def process_single_table(
             if suggested_pair is None:
                 suggested_pair = ground_truth_prefs[j-1]
 
-            # Determine Correct Order
-            rank_a = true_ranking[suggested_pair[0]]
-            rank_b = true_ranking[suggested_pair[1]]
+            # --- Consistency Check ---
+            pair_key = frozenset(suggested_pair)
             
-            if rank_a < rank_b:
-                correct_pair = np.array([suggested_pair[0], suggested_pair[1]])
+            if pair_key in pref_lookup:
+                # Case 1: Pair exists in the generated dataset -> Use stored decision (Consistent)
+                final_pair = pref_lookup[pair_key]
             else:
-                correct_pair = np.array([suggested_pair[1], suggested_pair[0]])
-            
-            # Simulate Inconsistency
-            if true_utility is not None:
-                if np.random.rand() > get_consistency_prob(correct_pair, true_utility, lam):
-                    final_pair = np.flip(correct_pair)
+                # Case 2: Pair not in dataset (F3 < 100) -> Simulate on the fly (Fallback)
+                # Determine Correct Order
+                rank_a = true_ranking[suggested_pair[0]]
+                rank_b = true_ranking[suggested_pair[1]]
+                
+                if rank_a < rank_b:
+                    correct_pair = np.array([suggested_pair[0], suggested_pair[1]])
+                else:
+                    correct_pair = np.array([suggested_pair[1], suggested_pair[0]])
+                
+                # Simulate Inconsistency
+                if true_utility is not None:
+                    if np.random.rand() > get_consistency_prob(correct_pair, true_utility, lam):
+                        final_pair = np.flip(correct_pair)
+                    else:
+                        final_pair = correct_pair
                 else:
                     final_pair = correct_pair
-            else:
-                final_pair = correct_pair
 
             sampler_active.add_preference(final_pair[0], final_pair[1])
             active_pref_history.append([final_pair[0], final_pair[1]])
