@@ -2,7 +2,7 @@ import numpy as np
 from experiments.runner import run_batch_experiments
 from experiments.metrics import BenchmarkRunner
 from common.utils import parse_subfold_string
-from experiments.plotting import plot_metric_results
+from experiments.plotting import plot_metric_results, plot_heuristic_correlation, plot_heuristic_stats, plot_heuristic_pearson_pvalues
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -18,22 +18,29 @@ DATASET_FOLDS = ['datasets']
 TARGET_METHODS = [
     #'BAYES_LIN_BALD',
     #'BAYES_BT_BALD',
-    #'FTRL_LIN_BALD',
+    'FTRL_LIN_BALD',
     'FTRL_BT_BALD',
+    'FTRL_BT_BALD+US',
     #'BAYES_LIN_US',
     #'BAYES_BT_US',
-    #'FTRL_LIN_US',
-    #'FTRL_BT_US',
-    #'FTRL_LIN_BALD+US',
+    'FTRL_LIN_US',
+    'FTRL_BT_US',
+    'FTRL_LIN_BALD+US',
     #'BAYES_LIN_BALD+US',
 ] 
 
 # Shared Parameters
-HM_0 = 2 # Number of Human Models to use for BOTH simulation and metrics
+# These control the global behavior of the active learning simulation.
+HM_0 = 1 # Number of Human Models to use for BOTH simulation and metrics (Reduced for debugging/speed)
+PEARSON_THRESHOLD = 0.01 # P-value threshold for BALD+US strategy (p < threshold -> US)
+N_SAMPLES_MC = 2000 # Number of samples for Laplace approximation in BALD (Higher = more accurate MI)
+USE_LINEAR_MI_APPROX = True # If True, use analytic linear approx (faster). If False, use MC sampling (slower, generally more robust).
 CALCULATE_METRICS = True
 OVERWRITE = True
 FORCE_METRICS = True
 GENERATE_PLOTS = True
+CALCULATE_HEURISTIC = True
+GENERATE_SCATTER_PLOTS = True
 
 # ----------------------------------------------------------------------
 # Execution
@@ -57,7 +64,12 @@ if __name__ == "__main__":
             alg=alg_name, 
             active_method=active_method_name, 
             overwrite=OVERWRITE,
-            hm=HM  # Pass the limit here
+            hm=HM,  # Pass the limit here
+            calculate_heuristic=CALCULATE_HEURISTIC,
+            generate_scatter_plots=GENERATE_SCATTER_PLOTS,
+            pearson_threshold=PEARSON_THRESHOLD,
+            n_samples_mc=N_SAMPLES_MC,
+            use_linear_approx=USE_LINEAR_MI_APPROX
         )
         
     # 2. Calculate Metrics
@@ -120,3 +132,37 @@ if __name__ == "__main__":
                     )
                 except Exception as e:
                     print(f"Failed to plot {metric} for {sub_fold}: {e}")
+            
+            if CALCULATE_HEURISTIC:
+                try:
+                    plot_heuristic_correlation(
+                        F1, F2, F3, 
+                        hm=HM, 
+                        num_dm_dec=num_dm_dec, 
+                        dataset_fold=DATASET_FOLDS[0], 
+                        sub_fold=sub_fold, 
+                        save_figs=True,
+                        show_figs=False
+                    )
+                    plot_heuristic_stats(
+                        F1, F2, F3, 
+                        hm=HM, 
+                        num_dm_dec=num_dm_dec, 
+                        dataset_fold=DATASET_FOLDS[0], 
+                        sub_fold=sub_fold, 
+                        save_figs=True,
+                        show_figs=False
+                    )
+
+                    plot_heuristic_pearson_pvalues(
+                        F1, F2, F3, 
+                        hm=HM, 
+                        num_dm_dec=num_dm_dec, 
+                        dataset_fold=DATASET_FOLDS[0], 
+                        sub_fold=sub_fold, 
+                        save_figs=True,
+                        show_figs=False,
+                        threshold=PEARSON_THRESHOLD
+                    )
+                except Exception as e:
+                    print(f"Failed to plot heuristic for {sub_fold}: {e}")

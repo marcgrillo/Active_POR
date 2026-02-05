@@ -3,7 +3,7 @@ import dynesty
 import cvxpy as cp
 from scipy.optimize import minimize
 from scipy.special import logsumexp, expit
-from scipy.stats import gamma
+from scipy.stats import gamma, pearsonr
 import itertools
 import time
 
@@ -13,10 +13,17 @@ from common.utils import safe_inverse, robust_sigmoid, dirichlet_transform, get_
 class PreferenceSampler:
     """
     Bayesian Preference Learning Engine.
-    Supports:
-      - Algorithms: BAYES (MCMC), FTRL (MAP + Laplace)
-      - Models: BT (Bradley-Terry), LIN (Linear)
-      - Active: BALD, US
+    
+    This class handles:
+    1.  **Bayesian Inference**: Estimating the user's utility function (omega) from pairwise preferences.
+        -   **BAYES**: Full MCMC sampling using Nested Sampling (Dynesty).
+        -   **FTRL**: Fast approximation using MAP (Maximum A Posteriori) estimation + Laplace Approximation (Hessian-based uncertainty).
+    2.  **Active Learning**: Suggesting the next best pair to show the user to maximize information gain.
+        -   **US (Uncertainty Sampling)**: Choose pairs where the model is most uncertain (Entropy).
+        -   **BALD (Bayesian Active Learning by Disagreement)**: Choose pairs that maximize Mutual Information between the prediction and model parameters (Reduces epistemic uncertainty).
+    3.  **Models**:
+        -   **BT (Bradley-Terry)**: Sigmoid-based probabilistic model (Soft consistency).
+        -   **LIN (Linear)**: Linear probability model (Harder consistency).
     """
     def __init__(self, feature_matrix, preferences, n_params):
         self.X = feature_matrix
@@ -160,22 +167,38 @@ class PreferenceSampler:
 
     def compute_laplace_covariance(self, omega_map, alg='FTRL-LIN', jitter=1e-8):
             """
-            Compute Laplace covariance (inverse negative Hessian).
-            Uses direct inversion with jitter (approximation) as requested.
+            Computes the Laplace Approximation of the posterior covariance.
+            
+            The Laplace approximation approximates the posterior as a Gaussian centered at the MAP estimate.
+            Covariance = Inverse(-Hessian of Log-Posterior)
+            
+            Mathematically:
+            Sigma = (X^T @ W @ X + Prior_Precision)^-1
+            
+            Where:
+            - W is the diagonal weight matrix derived from the second derivative of the link function (Sigmoid or Linear).
+            - X is the differenced feature matrix.
+            
+            Args:
+                omega_map (np.array): Maximum A Posteriori estimate of parameters.
+                alg (str): 'FTRL-BT' or 'FTRL-LIN' to determine the link function.
+                jitter (float): Small value added to diagonal for numerical stability during inversion.
             """
-            # --- Safety: Clip omega ---
+            # --- Safety: Clip omega (Linear model requires w > 0) ---
             if alg == 'FTRL-LIN':
                 omega_map += 1e-12
                 omega_map /= np.sum(omega_map)
             
             n, d = self.X_diff.shape
-            t = self.X_diff.dot(omega_map)
+            t = self.X_diff.dot(omega_map) # Latent utility difference
             
-            # Determine Weights and Feature Matrix for Hessian
+            # Determine Weights (W) and Feature Matrix (X_outer) for Hessian
             if alg == 'FTRL-BT':
                 p = expit(t)
                 p = np.clip(p, 1e-12, 1-1e-12)
+                # Second derivative of log-sigmoid is p(1-p)
                 W = p * (1.0 - p)
+                # Gamma prior diagonal approximation
                 prior_diag = (self.gamma_alpha_ftrl_bt - 1.0) / (omega_map ** 2)
                 # BT uses raw difference vectors
                 X_outer = self.X_diff 
@@ -183,19 +206,24 @@ class PreferenceSampler:
             elif alg == 'FTRL-LIN':
                 p = 0.5 * (1.0 + t)
                 p = np.clip(p, 1e-12, 1-1e-12)
+                # Derivative of log(p) involves 1/p^2
                 W = 1 / (p**2)
+                # Dirichlet prior diagonal approximation
                 prior_diag = self.lambda_dirichlet_ftrl_lin / (omega_map ** 2)
-                # LIN uses transformed vectors: 0.5 * (1 + diff)
+                # LIN uses transformed vectors: 0.5 * (1 + diff) ? No, actually derivative chain rule. 
+                # This formulation follows the specific gradient derivation for the linear model.
                 X_outer = 0.5 * (1.0 + self.X_diff)
                 
             else: # Fallback
                 print('Unknown algorithm for Laplace covariance.')
 
             # Accumulate Fisher Information Matrix F = X.T @ W @ X
+            # einsum 'i,ij,ik->jk' performs the weighted outer product sum efficiently
             dF = np.einsum('i,ij,ik->jk', W, X_outer, X_outer)
-            F = dF + np.diag(prior_diag)
+            F = dF + np.diag(prior_diag) # Add prior precision (Regularization)
 
             # Direct Inversion with Jitter
+            # We add jitter to ensure the matrix is Positive Definite before inversion
             F += np.eye(d) * jitter
             Sigma = safe_inverse(F)
             
@@ -220,7 +248,8 @@ class PreferenceSampler:
         try:
             raw_samples = rng.multivariate_normal(mean=omega_map, cov=Sigma, size=n_samples)
         except np.linalg.LinAlgError:
-            print("Covariance matrix not positive definite.")
+            print("Covariance matrix not positive definite. Using purely MAP samples.")
+            raw_samples = np.tile(omega_map, (n_samples, 1))
             
         if alg == 'FTRL-BT':
             # bald_smps_mc for FTRL-BT returns samples directly 
@@ -233,22 +262,32 @@ class PreferenceSampler:
             return samples
         
     def bald_mi_linear_appr(self, omega_map, Sigma, candidates, model_type):
+        """
+        Analytic Linear Approximation of BALD Mutual Information.
+        
+        Instead of sampling parameters (MC), we approximate the variance of the utility difference 
+        using the Laplace covariance matrix (Sigma) and propagate it to the MI score using a Taylor expansion.
+        
+        Faster than MC sampling but potentially less accurate for highly non-linear posterior/models.
+        """
         # Vectors: (N_cand, D)
         idx_a = [c[0] for c in candidates]
         idx_b = [c[1] for c in candidates]
         vec_diff = self.X[idx_a] - self.X[idx_b]
 
-        # Utilities: (N_cand, N_samples)
+        # Utilities: (N_cand,)
         t = vec_diff @ omega_map
         
-        # 1. Compute Var(t) = x.T @ Sigma @ x
-        # This is the base variance of the latent score t
+        # 1. Compute Var(t) = x.T @ Sigma @ x (Epistemic Uncertainty in latent space)
+        # This measures how much the model is uncertain about the utility difference for this pair
         var_t = np.einsum('ij,jk,ik->i', vec_diff, Sigma, vec_diff)
 
         if model_type == 'BT': 
             p = expit(t)
             p = np.clip(p, 1e-12, 1-1e-12)
-            # Correct: MI approx 0.5 * p(1-p) * Var(t)
+            # MacKay's Evidence Approximation / Probit Approximation for MI
+            # MI approx 0.5 * p(1-p) * Var(t)
+            # Intuition: Variance is highest when p is near 0.5, scaled by parameter uncertainty.
             mi = 0.5 * p * (1.0 - p) * var_t
             
         elif model_type == 'LIN':  
@@ -259,7 +298,8 @@ class PreferenceSampler:
             # Since p = 0.5(1+t), Var(p) = 0.5^2 * Var(t) = 0.25 * var_t
             var_p = 0.25 * var_t
             
-            # Correct: MI approx 0.5 * Var(p) / (p(1-p))
+            # Analytic MI for linear probability model
+            # MI approx 0.5 * Var(p) / (p(1-p))
             mi = 0.5 * var_p / (p * (1.0 - p))
             
         return mi
@@ -314,14 +354,19 @@ class PreferenceSampler:
             H_marginal = - (p_mean * np.log(p_mean) + (1-p_mean) * np.log(1-p_mean))
             E_H_conditional = np.mean(entropy_per_sample, axis=1)
             mi = H_marginal - E_H_conditional
-            angle = get_line_angle(H_marginal, mi)
-            if angle < 1:
-                return H_marginal
-            else:
+            if len(H_marginal) < 2:
                 return mi
+                
+            corr = np.corrcoef(H_marginal, mi)[0, 1]
+            if np.isnan(corr): corr = 0.0
+            
+            if corr > 0:
+                return mi
+            else:
+                return H_marginal
 
 
-    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=200):
+    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, pearson_threshold=0.01, use_linear_approx=False):
             """
             Determines the next best pair using the PROVIDED current_state.
             """
@@ -347,14 +392,128 @@ class PreferenceSampler:
                     # US: Use MAP point only
                     samples = np.atleast_2d(current_state)
                     scores = self._calculate_scores(candidates, samples, model_type, active_method)
-                elif active_method == 'BALD' or active_method == 'BALD+US': 
+                elif active_method == 'BALD': 
                     # BALD: Need Laplace Sampling
                     omega_map = current_state
                     Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
-                    #samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
-                    #Use Taylor approximation for scores
-                    scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+                    if use_linear_approx:
+                        scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+                    else:
+                        samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
+                        scores = self._calculate_scores(candidates, samples, model_type, 'BALD')
+                
+                elif active_method == 'BALD+US':
+                    omega_map = current_state
+                    # --- Step A: Compute US Scores (Aleatoric + Epistemic) ---
+                    # Uses only the MAP estimate. Fast.
+                    samples_map = np.atleast_2d(omega_map)
+                    scores_us = self._calculate_scores(candidates, samples_map, model_type, 'US')
+                    
+                    # --- Step B: Compute BALD Scores (Pure Epistemic) ---
+                    # Uses the Hessian (Sigma) to account for parameter uncertainty.
+                    Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
+                    if use_linear_approx:
+                         # Analytic approximation (Fast)
+                         scores_bald = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+                    else:
+                         # Monte Carlo sampling (Exact but slower)
+                         samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
+                         scores_bald = self._calculate_scores(candidates, samples, model_type, 'BALD')
+                    
+                    # 3. Corr
+                    # --- Step C: Strategy Switching Logic ---
+                    # We check if the two heuristics (US and BALD) are correlated.
+                    # - Low Correlation (High p-value): They disagree. This suggests distinct information. We prefer BALD to resolve ambiguity.
+                    # - High Correlation (Low p-value): They agree. Epistemic uncertainty is likely aligned with Aleatoric. We can use US (simpler).
+                    # - Exception: Significant NEGATIVE correlation (p < threshold, corr < 0) implies conflict. We use US.
+                    
+                    # Heuristic Check (Pearson p-value)
+                    if len(scores_us) < 2:
+                        scores = scores_bald
+                    else:
+                        pval = 1.0
+                        if np.std(scores_us) > 1e-9 and np.std(scores_bald) > 1e-9:
+                            try:
+                                # Left-tailed test: H1: correlation < 0 (Negative Correlation)
+                                corr_res = pearsonr(scores_us, scores_bald, alternative='less')
+                                pval = corr_res.pvalue
+                            except:
+                                pval = 1.0
+                        
+                        # Decision Rule:
+                        # If p < threshold (Significant Negative Correlation) -> Use US
+                        # Else -> Use BALD
+                        if pval < pearson_threshold: 
+                            scores = scores_us
+                        else: 
+                            scores = scores_bald
             else:
                 raise ValueError(f"Unknown Algo: {algo_type}")
             
             return candidates[np.argmax(scores)]
+
+    def compute_heuristic_correlation(self, all_indices, alg, current_state, n_samples_mc=2000, use_linear_approx=False):
+        """
+        Calculates correlation between BALD and US scores.
+        Returns: (correlation, scores_us, scores_bald)
+        """
+        if current_state is None: return 0.0, 1.0, None, None
+
+        algo_type, model_type = alg.split('-')
+        full_alg_name = alg
+
+        # 1. Generate Candidates (Same as suggest_next_pair)
+        possible_pairs = list(itertools.combinations(all_indices, 2))
+        seen = set(tuple(x) for x in self.prefs)
+        candidates = [p for p in possible_pairs if p not in seen and (p[1], p[0]) not in seen]
+        
+        if not candidates: return 0.0, 1.0, None, None
+
+        # 2. Prepare Samples/Sigma
+        if algo_type == 'BAYES':
+            samples = current_state
+            # US
+            scores_us = self._calculate_scores(candidates, samples, model_type, 'US')
+            # BALD
+            scores_bald = self._calculate_scores(candidates, samples, model_type, 'BALD')
+            
+        elif algo_type == 'FTRL':
+            omega_map = current_state
+            # For US (FTRL), we use MAP
+            # Note: _calculate_scores expects samples as (N_samples, D).
+            # MAP is (D,). So (1, D).
+            samples_map = np.atleast_2d(omega_map)
+            scores_us = self._calculate_scores(candidates, samples_map, model_type, 'US')
+            
+            # For BALD (FTRL), we need Sigma
+            Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
+            if use_linear_approx:
+                 scores_bald = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+            else:
+                 samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
+                 scores_bald = self._calculate_scores(candidates, samples, model_type, 'BALD')
+        else:
+            return 0.0, 1.0, None, None
+
+        # 3. Correlation
+        if len(scores_us) < 2: return 0.0, 1.0, scores_us, scores_bald
+        
+        # scores_us and scores_bald are aligned by candidate index
+        corr = 0.0
+        pval = 1.0
+        
+        # Filter NaNs
+        valid_idx = np.isfinite(scores_us) & np.isfinite(scores_bald)
+        clean_us = scores_us[valid_idx]
+        clean_bald = scores_bald[valid_idx]
+        
+        if len(clean_us) > 1 and np.std(clean_us) > 1e-9 and np.std(clean_bald) > 1e-9:
+            try:
+                res = pearsonr(clean_us, clean_bald, alternative='less')
+                corr = res.statistic
+                pval = res.pvalue
+            except Exception as e:
+                # print(f"Pearson Error: {e}")
+                pass
+        
+        return (corr if not np.isnan(corr) else 0.0), (pval if not np.isnan(pval) else 1.0), scores_us, scores_bald

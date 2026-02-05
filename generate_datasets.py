@@ -329,7 +329,7 @@ if __name__ == "__main__":
     
     TARGET_INCONSISTENCY = 0.0
     UTILITY_TYPE = 'piecewise_linear'  # Options: 'exponential', 'piecewise_linear'
-    PROB_MODEL = 'linear'          # Options: 'logit', 'linear'
+    PROB_MODEL = 'logit'          # Options: 'logit', 'linear'
     NUM_INTERVALS = 3             # Only for piecewise_linear
     PLOT_UTILITIES = True
     
