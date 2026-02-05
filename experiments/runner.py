@@ -4,7 +4,7 @@ import numpy as np
 from common import utils
 from experiments.simulation import process_single_table
 
-def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, pearson_threshold=0.01, n_samples_mc=2000, use_linear_approx=False):
+def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, pearson_threshold=0.01, n_samples_mc=2000, use_linear_approx=False, check_passive_algs_completed=False):
     """
     Orchestrates the experiments across multiple datasets and configurations.
     
@@ -47,6 +47,16 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                     method_dir = os.path.join(config_dir, sub_fold)
                     utils.save_path(method_dir)
 
+                    # Determine Shared Passive Directory
+                    passive_method_dir = None
+                    if check_passive_algs_completed:
+                         # Construct shared folder name: e.g. "BAYES-BT_PASSIVE"
+                         algo_type, model_type = alg.split('-') # e.g. BAYES, BT
+                         passive_sub_fold = f"{algo_type}-{model_type}_PASSIVE"
+                         passive_method_dir = os.path.join(config_dir, passive_sub_fold)
+                         utils.save_path(passive_method_dir)
+
+
                     # Handle Missing Utilities
                     if Us is None or len(Us) == 0:
                         Us_iter = [None] * len(tables)
@@ -84,5 +94,7 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                             sub_fold=sub_fold,
                             pearson_threshold=pearson_threshold,
                             n_samples_mc=n_samples_mc,
-                            use_linear_approx=use_linear_approx
+                            use_linear_approx=use_linear_approx,
+                            check_passive_algs_completed=check_passive_algs_completed,
+                            shared_passive_dir=passive_method_dir
                         )

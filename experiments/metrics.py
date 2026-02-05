@@ -26,14 +26,27 @@ class BenchmarkRunner:
 
     def _sample_path(self, f1, f2, f3, i, j, active=False):
         """Construct path to sample files."""
-        suffix = "_active.npy" if active else ".npy"
-        return os.path.join(
-            self.samples_fold,
-            f"f1_{f1}_f2_{f2}_f3_{f3}",
-            self.sub_fold,
-            f"table_{i}",
-            f"{j}{suffix}",
-        )
+        config_dir = os.path.join(self.samples_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
+        
+        if active:
+             return os.path.join(config_dir, self.sub_fold, f"table_{i}", f"{j}_active.npy")
+        
+        # Passive: Check specific folder first, then shared folder
+        path_specific = os.path.join(config_dir, self.sub_fold, f"table_{i}", f"{j}.npy")
+        if os.path.exists(path_specific):
+            return path_specific
+            
+        # Try shared folder (e.g. BAYES-BT_PASSIVE)
+        try:
+            alg_name, _ = parse_subfold_string(self.sub_fold) # e.g. BAYES-BT
+            passive_sub_fold = f"{alg_name}_PASSIVE"
+            path_shared = os.path.join(config_dir, passive_sub_fold, f"table_{i}", f"{j}.npy")
+            if os.path.exists(path_shared):
+                return path_shared
+        except Exception:
+             pass
+             
+        return path_specific
 
     # ----------------------------------------------------------------------
     # Metrics (POI / RAI)

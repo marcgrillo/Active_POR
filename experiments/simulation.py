@@ -2,6 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from common import utils
 from mcda.models import PiecewiseLinearTransformer
 from inference.engine import PreferenceSampler
 
@@ -41,7 +42,9 @@ def process_single_table(
     sub_fold="unknown",
     pearson_threshold=0.01,
     n_samples_mc=2000,
-    use_linear_approx=False
+    use_linear_approx=False,
+    check_passive_algs_completed=False,
+    shared_passive_dir=None
 ):
     """
     Runs the active learning simulation for a single Human Model (table).
@@ -85,6 +88,14 @@ def process_single_table(
     path_heuristic_stats = os.path.join(output_dir, "active_heuristic_stats.npy")
     path_pearson_pvalues = os.path.join(output_dir, "active_pearson_pvalues.npy")
 
+    # Initialize Shared Passive Folder if reusing
+    if check_passive_algs_completed and shared_passive_dir:
+        # We need a sub-folder for this table inside the shared dir
+        shared_table_dir = os.path.join(shared_passive_dir, f"table_{table_index}")
+        utils.save_path(shared_table_dir)
+    else:
+        shared_table_dir = None
+
     # 2. Attempt Restoration
     if os.path.exists(path_active_hist) and not overwrite:
         try:
@@ -116,21 +127,37 @@ def process_single_table(
     all_indices = np.arange(len(table))
 
     for j in tqdm(range(1, num_steps + 1), desc="  Constraints", leave=False):
-        path_passive = os.path.join(output_dir, f"{j}.npy")
+        # Determine paths
+        if check_passive_algs_completed and shared_table_dir:
+            path_passive = os.path.join(shared_table_dir, f"{j}.npy")
+        else:
+            path_passive = os.path.join(output_dir, f"{j}.npy")
+
         path_active = os.path.join(output_dir, f"{j}_active.npy")
 
         # Skip if done
         if os.path.exists(path_passive) and os.path.exists(path_active) and not overwrite:
+            # Load passive state to keep sampler consistent? 
+            # Ideally we don't need to load if we don't use it, but sampler_passive needs history updates
+            # to be correct for FUTURE steps if we were to continue.
+            # However, for pure skipping, we just need w_active.
             w_active = np.load(path_active)
+            
+            # Update samplers to current state for consistency
             p_pair = ground_truth_prefs[j-1]
             sampler_passive.add_preference(p_pair[0], p_pair[1])
             continue
-
+        
         # --- Track A: Passive ---
         passive_pair = ground_truth_prefs[j-1]
         sampler_passive.add_preference(passive_pair[0], passive_pair[1])
-        w_passive = get_sampler_state(sampler_passive, alg)
-        np.save(path_passive, w_passive)
+        
+        # Optimization: Only run passive inference if file doesn't exist
+        if os.path.exists(path_passive) and not overwrite:
+             w_passive = np.load(path_passive)
+        else:
+             w_passive = get_sampler_state(sampler_passive, alg)
+             np.save(path_passive, w_passive)
 
         # --- Track B: Active ---
         if calculate_heuristic and w_active is not None and j > 1:
