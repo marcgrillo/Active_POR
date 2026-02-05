@@ -8,40 +8,118 @@ from experiments.plotting import plot_metric_results, plot_heuristic_correlation
 # Configuration
 # ----------------------------------------------------------------------
 
-# Experiment Parameters
-F1 = [30]       # Alternatives
-F2 = [4]        # Criteria
-F3 = [100]       # % of pairwise comparisons
+# ==============================================================================
+# 1. Experiment Dimensions (Dataset Selection)
+# ==============================================================================
+# F1: List of integers representing the number of Alternatives (items) in the dataset.
+#     The code will iterate over these values to find matching datasets.
+F1 = [30]
+
+# F2: List of integers representing the number of Criteria (attributes) per alternative.
+F2 = [4]
+
+# F3: List of integers representing the Budget of pairwise comparisons as a percentage 
+#     of the total possible unique pairs. E.g., 100 means the budget is enough to 
+#     compare 100% of pairs (though the active learner selects which ones).
+#     Budget N = round(F3 * (F1 * (F1 - 1) / 200))
+F3 = [100]
+
+# DATASET_FOLDS: List of directory names where the synthetic datasets are stored.
 DATASET_FOLDS = ['datasets']
 
-# Algorithms to Benchmark
+# ==============================================================================
+# 2. Algorithm Configuration
+# ==============================================================================
+# TARGET_METHODS: List of strings defining which active learning strategies to run.
+#     Format: "{MODEL}_{MODE}_{ACQUISITION}" or "{MODEL}_{MODE}_{ACQUISITION}+{EXTRA}"
+#     - MODEL: 'BAYES' (Bayesian) or 'FTRL' (Follow The Regularized Leader)
+#     - MODE: 'LIN' (Linear utility) or 'BT' (Bradley-Terry probability model)
+#     - ACQUISITION: 
+#         - 'BALD': Bayesian Active Learning by Disagreement (Mutual Information)
+#         - 'US': Uncertainty Sampling
+#         - 'PASSIVE': Random selection (usually implicitly handled, not manually set here)
 TARGET_METHODS = [
-    #'BAYES_LIN_BALD',
-    #'BAYES_BT_BALD',
-    'FTRL_LIN_BALD',
-    'FTRL_BT_BALD',
-    'FTRL_BT_BALD+US',
-    #'BAYES_LIN_US',
-    #'BAYES_BT_US',
-    'FTRL_LIN_US',
-    'FTRL_BT_US',
-    'FTRL_LIN_BALD+US',
+    #'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
+    #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
+    'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
+    'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
+    'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
+    #'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
+    #'BAYES_BT_US',         # Bayesian BT with Uncertainty Sampling
+    'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
+    'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
+    'FTRL_LIN_BALD+US',     # FTRL Linear with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_BALD+US',
     #'BAYES_BT_BALD+US',
 ] 
 
-# Shared Parameters
-# These control the global behavior of the active learning simulation.
-HM_0 = 1 # Number of Human Models to use for BOTH simulation and metrics (Reduced for debugging/speed)
-PEARSON_THRESHOLD = 0.01 # P-value threshold for BALD+US strategy (p < threshold -> US)
-N_SAMPLES_MC = 2000 # Number of samples for Laplace approximation in BALD (Higher = more accurate MI)
-USE_LINEAR_MI_APPROX = True # If True, use analytic linear approx (faster). If False, use MC sampling (slower, generally more robust).
+# ==============================================================================
+# 3. Simulation Parameters
+# ==============================================================================
+# HM_0: Base number of "Human Models" (simulated decision makers/tables) to process.
+#       NOTE: For 'BAYES' methods, this is dynamically divided by 10 (HM = HM_0 / 10)
+#       due to the higher computational cost of Bayesian inference.
+HM_0 = 30 
+
+# PEARSON_THRESHOLD: Used only for 'BALD+US' hybrid strategies.
+#       This is the p-value threshold for the Pearson correlation check. 
+#       If the correlation between BALD usage and utility gain is high (p < threshold),
+#       it might influence switching logic (implementation specific in engine.py).
+PEARSON_THRESHOLD = 0.01 
+
+# N_SAMPLES_MC: Number of Monte Carlo samples used to approximate the posterior distribution
+#       when calculating Mutual Information (BALD), specifically when analytic approximations
+#       are not used or not applicable. Higher = more accurate but slower.
+N_SAMPLES_MC = 2000 
+
+# USE_LINEAR_MI_APPROX: Boolean flag for BALD optimization.
+#       - True: Use a closed-form analytic linear approximation for Mutual Information.
+#               Drastically faster but relies on linear assumptions.
+#       - False: Use Monte Carlo sampling to estimate MI. Slower but potentially more robust
+#                for non-linear scenarios or complex posteriors.
+USE_LINEAR_MI_APPROX = True 
+
+# CHECK_PASSIVE_ALGS_COMPLETED: Optimization flag.
+#       - True: Before running a simulation, check if a 'PASSIVE' (Random) run already 
+#               exists for this dataset config. If it does, reuse those results as the 
+#               baseline/passive curve instead of re-simulating random selection.
+#       - False: Always re-run the passive/random baseline.
 CHECK_PASSIVE_ALGS_COMPLETED = True
-CALCULATE_METRICS = True
+
+# ==============================================================================
+# 4. Execution Flow Flags
+# ==============================================================================
+
+# OVERWRITE: 
+#       - True: Re-run experiments even if output files already exist in the results folder.
+#       - False: Skip experiments that have already been completed.
 OVERWRITE = True
+
+# CALCULATE_METRICS: 
+#       - True: Run the metric calculation phase (e.g., Percent Increase, Accuracy) 
+#               after the simulation loop.
+CALCULATE_METRICS = True
+
+# FORCE_METRICS: 
+#       - True: Re-calculate metrics even if the metric summary files already exist.
+#       - False: Skip metric calculation if files exist.
 FORCE_METRICS = True
+
+# GENERATE_PLOTS: 
+#       - True: Generate visualization plots (line graphs of performance vs. queries) 
+#               and save them to the results folders.
 GENERATE_PLOTS = True
+
+# CALCULATE_HEURISTIC: 
+#       - True: Compute additional heuristic statistics (e.g., correlations between 
+#               acquisition scores and actual utility reduction). Useful for debugging 
+#               or deep analysis of strategy behavior.
 CALCULATE_HEURISTIC = True
+
+# GENERATE_SCATTER_PLOTS: 
+#       - True: Generate scatter plots for every step of the simulation showing 
+#               parameter estimates vs true utilities. 
+#       - WARNING: Very slow and generates a huge number of files. Use only for deep debugging.
 GENERATE_SCATTER_PLOTS = False
 
 # ----------------------------------------------------------------------
