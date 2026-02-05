@@ -16,22 +16,22 @@ DATASET_FOLDS = ['datasets']
 
 # Algorithms to Benchmark
 TARGET_METHODS = [
-    #'BAYES_LIN_BALD',
-    #'BAYES_BT_BALD',
+    'BAYES_LIN_BALD',
+    'BAYES_BT_BALD',
     'FTRL_LIN_BALD',
     'FTRL_BT_BALD',
     'FTRL_BT_BALD+US',
-    #'BAYES_LIN_US',
-    #'BAYES_BT_US',
+    'BAYES_LIN_US',
+    'BAYES_BT_US',
     'FTRL_LIN_US',
     'FTRL_BT_US',
     'FTRL_LIN_BALD+US',
-    #'BAYES_LIN_BALD+US',
+    'BAYES_LIN_BALD+US',
 ] 
 
 # Shared Parameters
 # These control the global behavior of the active learning simulation.
-HM_0 = 1 # Number of Human Models to use for BOTH simulation and metrics (Reduced for debugging/speed)
+HM_0 = 30 # Number of Human Models to use for BOTH simulation and metrics (Reduced for debugging/speed)
 PEARSON_THRESHOLD = 0.01 # P-value threshold for BALD+US strategy (p < threshold -> US)
 N_SAMPLES_MC = 2000 # Number of samples for Laplace approximation in BALD (Higher = more accurate MI)
 USE_LINEAR_MI_APPROX = True # If True, use analytic linear approx (faster). If False, use MC sampling (slower, generally more robust).
@@ -40,7 +40,7 @@ OVERWRITE = True
 FORCE_METRICS = True
 GENERATE_PLOTS = True
 CALCULATE_HEURISTIC = True
-GENERATE_SCATTER_PLOTS = True
+GENERATE_SCATTER_PLOTS = False
 
 # ----------------------------------------------------------------------
 # Execution
