@@ -41,14 +41,14 @@ DATASET_FOLDS = ['datasets']
 TARGET_METHODS = [
     #'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
     #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
-    'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
-    'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
-    'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
+    #'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
+    #'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
+    #'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
     #'BAYES_BT_US',         # Bayesian BT with Uncertainty Sampling
-    'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
+    #'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
     'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
-    'FTRL_LIN_BALD+US',     # FTRL Linear with Hybrid BALD + Uncertainty Sampling
+    #'FTRL_LIN_BALD+US',     # FTRL Linear with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_BALD+US',
     #'BAYES_BT_BALD+US',
 ] 
