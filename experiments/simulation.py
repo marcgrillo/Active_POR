@@ -6,13 +6,16 @@ from common import utils
 from mcda.models import PiecewiseLinearTransformer
 from inference.engine import PreferenceSampler
 
-def get_sampler_state(sampler, alg):
+def get_sampler_state(sampler, alg, use_mh_sampler=False):
     """
     Returns the state of the sampler (Samples for BAYES, MAP for FTRL).
     """
     algo_type, model_type = alg.split('-')
     if algo_type == 'BAYES':
-        return sampler.run_nested(model=model_type, nlive=500)
+        if use_mh_sampler and model_type == 'LIN':
+            return sampler.run_mh_sampler(model=model_type)
+        else:
+            return sampler.run_nested(model=model_type, nlive=500)
     elif algo_type == 'FTRL':
         return sampler.find_map(model=model_type)
     else:
@@ -44,7 +47,8 @@ def process_single_table(
     n_samples_mc=2000,
     use_linear_approx=False,
     check_passive_algs_completed=False,
-    shared_passive_dir=None
+    shared_passive_dir=None,
+    use_mh_sampler=False
 ):
     """
     Runs the active learning simulation for a single Human Model (table).
@@ -156,7 +160,7 @@ def process_single_table(
         if os.path.exists(path_passive) and not overwrite:
              w_passive = np.load(path_passive)
         else:
-             w_passive = get_sampler_state(sampler_passive, alg)
+             w_passive = get_sampler_state(sampler_passive, alg, use_mh_sampler=use_mh_sampler)
              np.save(path_passive, w_passive)
 
         # --- Track B: Active ---
@@ -267,7 +271,7 @@ def process_single_table(
 
             sampler_active.add_preference(final_pair[0], final_pair[1])
             active_pref_history.append([final_pair[0], final_pair[1]])
-            w_active = get_sampler_state(sampler_active, alg)
+            w_active = get_sampler_state(sampler_active, alg, use_mh_sampler=use_mh_sampler)
 
         np.save(path_active, w_active)
         np.save(path_active_hist, np.array(active_pref_history))

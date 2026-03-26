@@ -102,6 +102,88 @@ class PreferenceSampler:
         sampler.run_nested(print_progress=False, dlogz = dlz)
         return sampler.results.samples_equal()
 
+    def run_mh_sampler(self, model='LIN', n_samples=2000, tune_steps=500, target_accept=0.3):
+        """
+        Metropolis-Hastings sampling with a log-normal proposal.
+        """
+        loglike = self.log_likelihood_bt if model == 'BT' else self.log_likelihood_lin
+        
+        def log_prior(w):
+            if model == 'BT':
+                # Gamma prior
+                return np.sum(gamma.logpdf(w, a=self.gamma_alpha_bayes_bt, scale=self.gamma_beta_bayes_bt))
+            else:
+                # Dirichlet prior
+                return np.sum((self.alpha_dirichlet_bayes_lin - 1) * np.log(w + 1e-12))
+                
+        def log_target(w):
+            ll = loglike(w)
+            if not np.isfinite(ll): return -np.inf
+            lp = log_prior(w)
+            if not np.isfinite(lp): return -np.inf
+            return ll + lp
+
+        rng = np.random.default_rng()
+        # Initialize from MAP for FTRL model
+        try:
+            omega = self.find_map(model=model)
+            omega = np.clip(omega, 1e-6, 1.0)
+            if model == 'LIN':
+                omega /= np.sum(omega)
+        except Exception:
+            omega = np.ones(self.n_params) / self.n_params
+            
+        current_target = log_target(omega)
+        sigma = 0.1
+        
+        # 1. Tuning phase (Ghost MH)
+        for t in range(tune_steps):
+            # Lognormal proposal
+            omega_prop = omega * np.exp(rng.normal(0, sigma, self.n_params))
+            if model == 'LIN':
+                omega_prop /= np.sum(omega_prop) # Project to simplex
+            
+            prop_target = log_target(omega_prop)
+            
+            if not np.isfinite(prop_target):
+                log_accept_ratio = -np.inf
+            else:
+                correction = np.sum(np.log(omega_prop) - np.log(omega))
+                log_accept_ratio = prop_target - current_target + correction
+            
+            accept_prob = min(1.0, np.exp(log_accept_ratio))
+            
+            if rng.uniform() < accept_prob:
+                omega = omega_prop
+                current_target = prop_target
+                
+            # Adapt sigma (Robbins-Monro stochastic approximation)
+            step_size = 1.0 / np.sqrt(t + 1)
+            sigma = sigma * np.exp(step_size * (accept_prob - target_accept))
+            
+        # 2. Sampling phase
+        samples = []
+        for _ in range(n_samples):
+            omega_prop = omega * np.exp(rng.normal(0, sigma, self.n_params))
+            if model == 'LIN':
+                omega_prop /= np.sum(omega_prop)
+                
+            prop_target = log_target(omega_prop)
+            
+            if not np.isfinite(prop_target):
+                log_accept_ratio = -np.inf
+            else:
+                correction = np.sum(np.log(omega_prop) - np.log(omega))
+                log_accept_ratio = prop_target - current_target + correction
+                
+            if np.log(rng.uniform()) < log_accept_ratio:
+                omega = omega_prop
+                current_target = prop_target
+                
+            samples.append(omega.copy())
+            
+        return np.array(samples)
+
     # ------------------------------------------------------------------
     # 2. FTRL: Optimization (MAP)
     # ------------------------------------------------------------------

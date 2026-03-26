@@ -4,7 +4,7 @@ import numpy as np
 from common import utils
 from experiments.simulation import process_single_table
 
-def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, pearson_threshold=0.01, n_samples_mc=2000, use_linear_approx=False, check_passive_algs_completed=False):
+def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, pearson_threshold=0.01, n_samples_mc=2000, use_linear_approx=False, check_passive_algs_completed=False, use_mh_sampler=False):
     """
     Orchestrates the experiments across multiple datasets and configurations.
     
@@ -96,5 +96,6 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                             n_samples_mc=n_samples_mc,
                             use_linear_approx=use_linear_approx,
                             check_passive_algs_completed=check_passive_algs_completed,
-                            shared_passive_dir=passive_method_dir
+                            shared_passive_dir=passive_method_dir,
+                            use_mh_sampler=use_mh_sampler
                         )

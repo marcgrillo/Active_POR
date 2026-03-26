@@ -39,7 +39,7 @@ DATASET_FOLDS = ['datasets']
 #         - 'US': Uncertainty Sampling
 #         - 'PASSIVE': Random selection (usually implicitly handled, not manually set here)
 TARGET_METHODS = [
-    #'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
+    'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
     #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
     #'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
     #'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
@@ -47,7 +47,7 @@ TARGET_METHODS = [
     #'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
     #'BAYES_BT_US',         # Bayesian BT with Uncertainty Sampling
     #'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
-    'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
+    #'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
     #'FTRL_LIN_BALD+US',     # FTRL Linear with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_BALD+US',
     #'BAYES_BT_BALD+US',
@@ -59,7 +59,7 @@ TARGET_METHODS = [
 # HM_0: Base number of "Human Models" (simulated decision makers/tables) to process.
 #       NOTE: For 'BAYES' methods, this is dynamically divided by 10 (HM = HM_0 / 10)
 #       due to the higher computational cost of Bayesian inference.
-HM_0 = 30 
+HM_0 = 10
 
 # PEARSON_THRESHOLD: Used only for 'BALD+US' hybrid strategies.
 #       This is the p-value threshold for the Pearson correlation check. 
@@ -85,6 +85,9 @@ USE_LINEAR_MI_APPROX = True
 #               baseline/passive curve instead of re-simulating random selection.
 #       - False: Always re-run the passive/random baseline.
 CHECK_PASSIVE_ALGS_COMPLETED = True
+
+# USE_MH_SAMPLER: Flag to enable Metropolis-Hastings sampling for the BAYES LIN configuration
+USE_MH_SAMPLER = True
 
 # ==============================================================================
 # 4. Execution Flow Flags
@@ -151,6 +154,7 @@ if __name__ == "__main__":
             n_samples_mc=N_SAMPLES_MC,
             use_linear_approx=USE_LINEAR_MI_APPROX,
             check_passive_algs_completed=CHECK_PASSIVE_ALGS_COMPLETED,
+            use_mh_sampler=USE_MH_SAMPLER,
         )
         
     # 2. Calculate Metrics
@@ -164,7 +168,8 @@ if __name__ == "__main__":
             alg_name, active_method_name = parse_subfold_string(sub_fold)
 
             algo_type, model_type = alg_name.split('-')
-            if alg_name == 'BAYES': HM = int(HM/10)
+            if algo_type == 'BAYES': HM = int(HM_0/10)
+            else: HM = HM_0
 
             print(f"\n=== Calculating Metrics for {alg_name} with {active_method_name} ===")
             runner = BenchmarkRunner(
