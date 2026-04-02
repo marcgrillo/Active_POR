@@ -15,8 +15,8 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
     for dataset_fold in dataset_folds:
         print(f"\n=== Processing Dataset: {dataset_fold} ===")
         
-        # Load Generation Params (Lambda)
-        params_path = os.path.join(dataset_fold, "generation_params.json")
+        # Load Generation Params from datasets/dataset_name/
+        params_path = os.path.join("datasets", dataset_fold, "generation_params.json")
         gen_params = {}
         if os.path.exists(params_path):
             with open(params_path, 'r') as f:
@@ -25,7 +25,7 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
         else:
             print("Warning: generation_params.json not found. Using default lambda=inf.")
 
-        samples_root = f"samples_{dataset_fold}"
+        samples_root = os.path.join("samples", dataset_fold)
         
         for f1 in F1:
             for f2 in F2:
@@ -36,7 +36,8 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                 
                 for f3 in F3:
                     try:
-                        tables, rankings, dm_prefs, Us = utils.read_dataset(dataset_fold, f1, f2, f3)
+                        # Read From datasets/dataset_name/
+                        tables, rankings, dm_prefs, Us = utils.read_dataset(os.path.join("datasets", dataset_fold), f1, f2, f3)
                     except FileNotFoundError as e:
                         print(f"Skipping {f1}/{f2}/{f3}: {e}")
                         continue

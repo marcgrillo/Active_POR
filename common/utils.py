@@ -163,7 +163,7 @@ def load_test_results(test_name: str, dataset_fold: str, sub_fold: str, num_dm_d
     Generic function to load test results (ASRS, ASPS, AIOS).
     Handles differences in file naming conventions between metrics.
     """
-    test_fold = os.path.join('tests_'+dataset_fold, sub_fold, test_name)
+    test_fold = os.path.join('tests', dataset_fold, sub_fold, test_name)
     sub_test_fold = os.path.join(test_fold, f"f1_{f1}_f2_{f2}_f3_{f3}")
     
     loaded_data = []

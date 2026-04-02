@@ -40,7 +40,7 @@ def plot_metric_results(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=No
     mean_active = np.mean(y_active, axis=1)
     std_active = np.std(y_active, axis=1) * 2 / np.sqrt(n_samples) # 95% CI
 
-    save_dir = os.path.join("figs", metric_name)
+    save_dir = os.path.join("figs", dataset_fold, metric_name) if dataset_fold else os.path.join("figs", metric_name)
     if save_figs:
         os.makedirs(save_dir, exist_ok=True)
 
@@ -145,7 +145,7 @@ def plot_wilcoxon_test(metric_name, F1, F2, F3, hm, num_dm_dec, dataset_fold=Non
     plt.grid(True, which="both", linestyle="--", alpha=0.5)
     plt.tight_layout()
 
-    save_dir = os.path.join("figs", metric_name)
+    save_dir = os.path.join("figs", dataset_fold, metric_name) if dataset_fold else os.path.join("figs", metric_name)
     if save_figs:
         os.makedirs(save_dir, exist_ok=True)
         plt.savefig(os.path.join(save_dir, f"{'_'.join(sub_fold.split('_')[:-1])}_wilcoxon_multi.png"), dpi=300)
@@ -254,7 +254,7 @@ def plot_heuristic_correlation(F1, F2, F3, hm, num_dm_dec, dataset_fold, sub_fol
     all_corrs = []
     
     # Reconstruct path
-    base_dir = os.path.join(f"samples_{dataset_fold}", f"f1_{f1}_f2_{f2}_f3_{f3}", sub_fold)
+    base_dir = os.path.join("samples", dataset_fold, f"f1_{f1}_f2_{f2}_f3_{f3}", sub_fold)
     
     for i in range(hm):
         path = os.path.join(base_dir, f"table_{i}", "active_heuristic.npy")
@@ -302,7 +302,7 @@ def plot_heuristic_correlation(F1, F2, F3, hm, num_dm_dec, dataset_fold, sub_fol
     plt.grid(True, linestyle=":", alpha=0.4)
     plt.legend(loc='lower left')
     
-    save_dir = os.path.join("figs", "heuristic", "correlation")
+    save_dir = os.path.join("figs", dataset_fold, "heuristic", "correlation") if dataset_fold else os.path.join("figs", "heuristic", "correlation")
     if save_figs:
         os.makedirs(save_dir, exist_ok=True)
         plt.savefig(os.path.join(save_dir, f"{sub_fold}_correlation.png"))
@@ -316,7 +316,7 @@ def plot_heuristic_stats(F1, F2, F3, hm, num_dm_dec, dataset_fold, sub_fold, sav
     Plots the mean and std of US and BALD scores over time.
     """
     f1, f2, f3 = F1[0], F2[0], F3[0]
-    config_dir = os.path.join(f"samples_{dataset_fold}", f"f1_{f1}_f2_{f2}_f3_{f3}", sub_fold)
+    config_dir = os.path.join("samples", dataset_fold, f"f1_{f1}_f2_{f2}_f3_{f3}", sub_fold)
     
     all_stats = []
     
@@ -381,7 +381,7 @@ def plot_heuristic_stats(F1, F2, F3, hm, num_dm_dec, dataset_fold, sub_fold, sav
     
     plt.tight_layout()
     
-    save_dir = os.path.join("figs", "heuristic", "scores_stats")
+    save_dir = os.path.join("figs", dataset_fold, "heuristic", "scores_stats") if dataset_fold else os.path.join("figs", "heuristic", "scores_stats")
     if save_figs:
         os.makedirs(save_dir, exist_ok=True)
         plt.savefig(os.path.join(save_dir, f"{sub_fold}_scores_stats.png"))
@@ -399,7 +399,7 @@ def plot_heuristic_pearson_pvalues(F1, F2, F3, hm, num_dm_dec, dataset_fold, sub
     Plots the p-value of the Pearson Correlation over time.
     """
     f1, f2, f3 = F1[0], F2[0], F3[0]
-    config_dir = os.path.join(f"samples_{dataset_fold}", f"f1_{f1}_f2_{f2}_f3_{f3}", sub_fold)
+    config_dir = os.path.join("samples", dataset_fold, f"f1_{f1}_f2_{f2}_f3_{f3}", sub_fold)
     
     all_pvals = []
     
@@ -442,7 +442,7 @@ def plot_heuristic_pearson_pvalues(F1, F2, F3, hm, num_dm_dec, dataset_fold, sub
     plt.legend()
     plt.tight_layout()
     
-    save_dir = os.path.join("figs", "heuristic", "pearson_pvalues")
+    save_dir = os.path.join("figs", dataset_fold, "heuristic", "pearson_pvalues") if dataset_fold else os.path.join("figs", "heuristic", "pearson_pvalues")
     if save_figs:
         os.makedirs(save_dir, exist_ok=True)
         plt.savefig(os.path.join(save_dir, f"{sub_fold}_pearson_pvalues.png"))

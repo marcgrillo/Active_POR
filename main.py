@@ -24,8 +24,10 @@ F2 = [4]
 #     Budget N = round(F3 * (F1 * (F1 - 1) / 200))
 F3 = [100]
 
-# DATASET_FOLDS: List of directory names where the synthetic datasets are stored.
-DATASET_FOLDS = ['datasets']
+# DATASET_FOLDS: List of dataset names to process. 
+#       The code will look for raw data in: 'datasets/{name}/'
+#       The code will save results in: 'samples/{name}/', 'tests/{name}/', and 'figs/{name}/'
+DATASET_FOLDS = ['default_dataset']
 
 # ==============================================================================
 # 2. Algorithm Configuration
@@ -39,9 +41,9 @@ DATASET_FOLDS = ['datasets']
 #         - 'US': Uncertainty Sampling
 #         - 'PASSIVE': Random selection (usually implicitly handled, not manually set here)
 TARGET_METHODS = [
-    'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
+    #'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
     #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
-    #'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
+    'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
     #'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
     #'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
@@ -77,7 +79,7 @@ N_SAMPLES_MC = 2000
 #               Drastically faster but relies on linear assumptions.
 #       - False: Use Monte Carlo sampling to estimate MI. Slower but potentially more robust
 #                for non-linear scenarios or complex posteriors.
-USE_LINEAR_MI_APPROX = True 
+USE_LINEAR_MI_APPROX = False 
 
 # CHECK_PASSIVE_ALGS_COMPLETED: Optimization flag.
 #       - True: Before running a simulation, check if a 'PASSIVE' (Random) run already 

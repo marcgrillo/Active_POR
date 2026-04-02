@@ -381,7 +381,10 @@ class PreferenceSampler:
             var_p = 0.25 * var_t
             
             # Analytic MI for linear probability model
-            # MI approx 0.5 * Var(p) / (p(1-p))
+            # Note: We use the standard p(1-p) denominator here, though it is 
+            # unstable at the boundaries (p=1) for linear models.
+            # Using Monte Carlo sampling (USE_LINEAR_MI_APPROX=False) is 
+            # recommended for theoretical consistency with this model.
             mi = 0.5 * var_p / (p * (1.0 - p))
             
         return mi

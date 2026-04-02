@@ -320,7 +320,8 @@ class DatasetGenerator:
 
 if __name__ == "__main__":
     # --- Configuration ---
-    OUTPUT_DIR = "datasets"
+    DATASET_NAME = "default_dataset"  # Change this to group datasets (e.g., 'exp1', 'inconsistency_test')
+    OUTPUT_DIR = os.path.join("datasets", DATASET_NAME)
     N_RUNS = 30
     
     F1_LIST = [30]

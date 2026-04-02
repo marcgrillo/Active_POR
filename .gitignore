@@ -2,8 +2,10 @@
 datasets/
 figs/
 oth/
-samples_datasets/
-tests_datasets/
+samples/
+samples_*/
+tests/
+tests_*/
 gitignore_files_inside/
 plots_analysis/
 

@@ -11,10 +11,10 @@ class BenchmarkRunner:
     """
 
     def __init__(self, dataset_fold, sub_fold, num_subint, hm, F1, F2, F3, num_dm_dec):
-        self.dataset_fold = dataset_fold
+        self.dataset_fold = os.path.join('datasets', dataset_fold)
         self.sub_fold = sub_fold
-        self.samples_fold = f'samples_{dataset_fold}'
-        self.tests_fold = f'tests_{dataset_fold}'
+        self.samples_fold = os.path.join('samples', dataset_fold)
+        self.tests_fold = os.path.join('tests', dataset_fold)
         self.sub_tests_fold = os.path.join(self.tests_fold, sub_fold)
         
         self.num_subint = num_subint
