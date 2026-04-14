@@ -1,16 +1,21 @@
 import os
 import json
 import numpy as np
+import time
+from multiprocessing import Manager
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
 from common import utils
 from experiments.simulation import process_single_table
 
-def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, check_passive_algs_completed=False, use_mh_sampler=False):
+def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, check_passive_algs_completed=False, use_mh_sampler=False, num_cores=1):
     """
     Orchestrates the experiments across multiple datasets and configurations.
     
     Args:
         hm (int, optional): Number of Human Models (tables) to process. 
                             If None, processes all available in the dataset.
+        num_cores (int): Number of CPU cores for parallel table processing.
     """
     for dataset_fold in dataset_folds:
         print(f"\n=== Processing Dataset: {dataset_fold} ===")
@@ -57,7 +62,6 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                          passive_method_dir = os.path.join(config_dir, passive_sub_fold)
                          utils.save_path(passive_method_dir)
 
-
                     # Handle Missing Utilities
                     if Us is None or len(Us) == 0:
                         Us_iter = [None] * len(tables)
@@ -73,31 +77,90 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                         dm_prefs = dm_prefs[:limit]
                         Us_iter = Us_iter[:limit]
                     
-                    # Process Tables
+                    # Prepare tasks
+                    tasks = []
                     for i, (table, ranking, prefs, true_u) in enumerate(zip(tables, rankings, dm_prefs, Us_iter)):
                         table_dir = os.path.join(method_dir, f"table_{i}")
                         utils.save_path(table_dir)
                         
-                        process_single_table(
-                            table=table,
-                            ground_truth_prefs=prefs,
-                            true_ranking=ranking,
-                            true_utility=true_u,
-                            num_steps=num_dm_dec,
-                            output_dir=table_dir,
-                            alg=alg, 
-                            active_method=active_method,
-                            lam=current_lam,
-                            overwrite=overwrite,
-                            calculate_heuristic=calculate_heuristic,
-                            generate_scatter_plots=generate_scatter_plots,
-                            table_index=i,
-                            sub_fold=sub_fold,
-                            mape_threshold=mape_threshold,
-                            plot_mape_fit=plot_mape_fit,
-                            n_samples_mc=n_samples_mc,
-                            use_linear_approx=use_linear_approx,
-                            check_passive_algs_completed=check_passive_algs_completed,
-                            shared_passive_dir=passive_method_dir,
-                            use_mh_sampler=use_mh_sampler
-                        )
+                        task_args = {
+                            'table': table,
+                            'ground_truth_prefs': prefs,
+                            'true_ranking': ranking,
+                            'true_utility': true_u,
+                            'num_steps': num_dm_dec,
+                            'output_dir': table_dir,
+                            'alg': alg,
+                            'active_method': active_method,
+                            'lam': current_lam,
+                            'overwrite': overwrite,
+                            'calculate_heuristic': calculate_heuristic,
+                            'generate_scatter_plots': generate_scatter_plots,
+                            'table_index': i,
+                            'sub_fold': sub_fold,
+                            'mape_threshold': mape_threshold,
+                            'plot_mape_fit': plot_mape_fit,
+                            'n_samples_mc': n_samples_mc,
+                            'use_linear_approx': use_linear_approx,
+                            'check_passive_algs_completed': check_passive_algs_completed,
+                            'shared_passive_dir': passive_method_dir,
+                            'use_mh_sampler': use_mh_sampler
+                        }
+                        tasks.append(task_args)
+
+                    # Execute Tasks
+                    if num_cores > 1 and len(tasks) > 1:
+                        print(f"Running {len(tasks)} tables in parallel using {num_cores} cores...")
+                        
+                        with Manager() as manager:
+                            # Global dictionary to track progress of each table
+                            progress_dict = manager.dict({task['table_index']: 0 for task in tasks})
+                            for task in tasks:
+                                task['disable_tqdm'] = True
+                                task['progress_dict'] = progress_dict
+
+                            with ProcessPoolExecutor(max_workers=num_cores) as executor:
+                                # Submit all tasks
+                                futures = [executor.submit(process_single_table, **task) for task in tasks]
+                                
+                                # Progress bar that tracks the SLOWEST worker
+                                pbar = tqdm(total=num_dm_dec, desc="  Initializing...", leave=True)
+                                last_min = 0
+                                
+                                while any(not f.done() for f in futures):
+                                    # Identify slowest task
+                                    vals = list(progress_dict.values())
+                                    if not vals: break
+                                    
+                                    min_step = min(vals)
+                                    # Identify table index of the bottleneck
+                                    slowest_idx = -1
+                                    for idx, step in progress_dict.items():
+                                        if step == min_step:
+                                            slowest_idx = idx
+                                            break
+                                    
+                                    pbar.set_description(f"  Slowest: Table {slowest_idx}")
+                                    
+                                    if min_step > last_min:
+                                        pbar.update(min_step - last_min)
+                                        last_min = min_step
+                                    
+                                    time.sleep(0.5) # Poll every 0.5s
+                                
+                                # Complete bar to 100%
+                                if num_dm_dec > last_min:
+                                    pbar.update(num_dm_dec - last_min)
+                                pbar.close()
+                                
+                                # Final check for worker exceptions
+                                for f in futures:
+                                    try:
+                                        f.result()
+                                    except Exception as exc:
+                                        print(f"A worker generated an exception: {exc}")
+
+                    else:
+                        # Sequential execution - keep inner tqdm bars enabled
+                        for task in tasks:
+                            process_single_table(**task)

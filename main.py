@@ -44,14 +44,14 @@ TARGET_METHODS = [
     #'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
     #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
     #'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
-    #'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
-    #'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
+    'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
+    'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
     #'BAYES_BT_US',         # Bayesian BT with Uncertainty Sampling
     #'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
-    #'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
+    'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
     #'FTRL_LIN_BALD+US',
-    'BAYES_LIN_BALD+US',
+    #'BAYES_LIN_BALD+US',
 ] 
 
 # ==============================================================================
@@ -61,6 +61,10 @@ TARGET_METHODS = [
 HM_FTRL = 10
 # HM_BAYES: Number of "Human Models" to process for BAYES algorithms.
 HM_BAYES = 1
+
+# NUM_CORES: Number of CPU cores to use for parallel processing of Human Models (Tables).
+#            If set to 1, processing is sequential.
+NUM_CORES = 10 
 
 
 # MAPE_THRESHOLD: Used only for 'BALD+US' switching strategy.
@@ -78,7 +82,7 @@ N_SAMPLES_MC = 2000
 #               Drastically faster but relies on linear assumptions.
 #       - False: Use Monte Carlo sampling to estimate MI. Slower but potentially more robust
 #                for non-linear scenarios or complex posteriors.
-USE_LINEAR_MI_APPROX = False 
+USE_LINEAR_MI_APPROX = True
 # PLOT_MAPE_FIT: If True, saves diagnostic plots of the MI decay fit every 10 steps.
 PLOT_MAPE_FIT = True
 
@@ -99,7 +103,7 @@ USE_MH_SAMPLER = True
 # OVERWRITE: 
 #       - True: Re-run experiments even if output files already exist in the results folder.
 #       - False: Skip experiments that have already been completed.
-OVERWRITE = False
+OVERWRITE = True
 
 # CALCULATE_METRICS: 
 #       - True: Run the metric calculation phase (e.g., Percent Increase, Accuracy) 
@@ -158,6 +162,7 @@ if __name__ == "__main__":
             use_linear_approx=USE_LINEAR_MI_APPROX,
             check_passive_algs_completed=CHECK_PASSIVE_ALGS_COMPLETED,
             use_mh_sampler=USE_MH_SAMPLER,
+            num_cores=NUM_CORES,
         )
         
     # 2. Calculate Metrics

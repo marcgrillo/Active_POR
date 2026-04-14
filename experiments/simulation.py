@@ -50,7 +50,9 @@ def process_single_table(
     use_linear_approx=False,
     check_passive_algs_completed=False,
     shared_passive_dir=None,
-    use_mh_sampler=False
+    use_mh_sampler=False,
+    disable_tqdm=False,
+    progress_dict=None
 ):
     """
     Runs the active learning simulation for a single Human Model (table).
@@ -129,7 +131,9 @@ def process_single_table(
     pref_lookup = {frozenset(pair): pair for pair in ground_truth_prefs}
     all_indices = np.arange(len(table))
 
-    for j in tqdm(range(1, num_steps + 1), desc="  Constraints", leave=False):
+    for j in tqdm(range(1, num_steps + 1), desc=f"  Table {table_index}", leave=False, disable=disable_tqdm):
+        if progress_dict is not None:
+            progress_dict[table_index] = j
         # Determine paths
         if check_passive_algs_completed and shared_table_dir:
             path_passive = os.path.join(shared_table_dir, f"{j}.npy")
