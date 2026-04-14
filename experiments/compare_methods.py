@@ -98,7 +98,7 @@ if __name__ == "__main__":
     METRICS = ['asrs', 'asps']
     MODELS = ['FTRL_LIN', 'FTRL_BT', 'BAYES_LIN', 'BAYES_BT']
     
-    output_dir = os.path.join('figs', 'comparisons')
+    output_dir = os.path.join('figs', DATASET, 'comparisons')
     
     print("Starting Comparative Analysis...")
     for model in MODELS:
