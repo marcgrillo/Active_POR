@@ -376,9 +376,11 @@ class PreferenceSampler:
             p = 0.5 * (1.0 + t)
             p = np.clip(p, 1e-12, 1-1e-12)
             
-            # 2. Convert Var(t) to Var(p)
-            # Since p = 0.5(1+t), Var(p) = 0.5^2 * Var(t) = 0.25 * var_t
-            var_p = 0.25 * var_t
+            # Compute Var(p) using the same X_outer transform as the Hessian
+            # Since p = 0.5 * (1 + delta_x @ omega), its variance is
+            # (0.5 * (1 + x)).T @ Sigma @ (0.5 * (1 + x))
+            X_outer_cand = 0.5 * (1.0 + vec_diff)
+            var_p = np.einsum('ij,jk,ik->i', X_outer_cand, Sigma, X_outer_cand)
             
             # Analytic MI for linear probability model
             # Note: We use the standard p(1-p) denominator here, though it is 
