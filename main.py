@@ -2,7 +2,7 @@ import numpy as np
 from experiments.runner import run_batch_experiments
 from experiments.metrics import BenchmarkRunner
 from common.utils import parse_subfold_string
-from experiments.plotting import plot_metric_results, plot_heuristic_correlation, plot_heuristic_stats, plot_heuristic_pearson_pvalues
+from experiments.plotting import plot_metric_results
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -43,31 +43,30 @@ DATASET_FOLDS = ['default_dataset']
 TARGET_METHODS = [
     #'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
     #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
-    'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
+    #'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
     #'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
     #'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
     #'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
     #'BAYES_BT_US',         # Bayesian BT with Uncertainty Sampling
     #'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
     #'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
-    #'FTRL_LIN_BALD+US',     # FTRL Linear with Hybrid BALD + Uncertainty Sampling
-    #'BAYES_LIN_BALD+US',
-    #'BAYES_BT_BALD+US',
+    #'FTRL_LIN_BALD+US',
+    'BAYES_LIN_BALD+US',
 ] 
 
 # ==============================================================================
 # 3. Simulation Parameters
 # ==============================================================================
-# HM_0: Base number of "Human Models" (simulated decision makers/tables) to process.
-#       NOTE: For 'BAYES' methods, this is dynamically divided by 10 (HM = HM_0 / 10)
-#       due to the higher computational cost of Bayesian inference.
-HM_0 = 10
+# HM_FTRL: Number of "Human Models" to process for FTRL algorithms.
+HM_FTRL = 10
+# HM_BAYES: Number of "Human Models" to process for BAYES algorithms.
+HM_BAYES = 1
 
-# PEARSON_THRESHOLD: Used only for 'BALD+US' hybrid strategies.
-#       This is the p-value threshold for the Pearson correlation check. 
-#       If the correlation between BALD usage and utility gain is high (p < threshold),
-#       it might influence switching logic (implementation specific in engine.py).
-PEARSON_THRESHOLD = 0.01 
+
+# MAPE_THRESHOLD: Used only for 'BALD+US' switching strategy.
+#       This is the maximum allowed MAPE for the 1/(a+t) trend-line fit 
+#       of average MI scores. If exceeded, the method switches to US.
+MAPE_THRESHOLD = 0.05 
 
 # N_SAMPLES_MC: Number of Monte Carlo samples used to approximate the posterior distribution
 #       when calculating Mutual Information (BALD), specifically when analytic approximations
@@ -80,6 +79,8 @@ N_SAMPLES_MC = 2000
 #       - False: Use Monte Carlo sampling to estimate MI. Slower but potentially more robust
 #                for non-linear scenarios or complex posteriors.
 USE_LINEAR_MI_APPROX = False 
+# PLOT_MAPE_FIT: If True, saves diagnostic plots of the MI decay fit every 10 steps.
+PLOT_MAPE_FIT = True
 
 # CHECK_PASSIVE_ALGS_COMPLETED: Optimization flag.
 #       - True: Before running a simulation, check if a 'PASSIVE' (Random) run already 
@@ -98,7 +99,7 @@ USE_MH_SAMPLER = True
 # OVERWRITE: 
 #       - True: Re-run experiments even if output files already exist in the results folder.
 #       - False: Skip experiments that have already been completed.
-OVERWRITE = True
+OVERWRITE = False
 
 # CALCULATE_METRICS: 
 #       - True: Run the metric calculation phase (e.g., Percent Increase, Accuracy) 
@@ -138,9 +139,8 @@ if __name__ == "__main__":
         alg_name, active_method_name = parse_subfold_string(sub_fold)
         print(f"\n>>> Running: {alg_name} with {active_method_name}")
 
-        algo_type, model_type = alg_name.split('-')
-        if algo_type == 'BAYES': HM = int(HM_0/10)
-        else: HM = HM_0
+        algo_type, _ = alg_name.split('-')
+        HM = HM_BAYES if algo_type == 'BAYES' else HM_FTRL
         
         run_batch_experiments(
             F1, F2, F3, 
@@ -152,7 +152,8 @@ if __name__ == "__main__":
             hm=HM,  # Pass the limit here
             calculate_heuristic=CALCULATE_HEURISTIC,
             generate_scatter_plots=GENERATE_SCATTER_PLOTS,
-            pearson_threshold=PEARSON_THRESHOLD,
+            mape_threshold=MAPE_THRESHOLD,
+            plot_mape_fit=PLOT_MAPE_FIT,
             n_samples_mc=N_SAMPLES_MC,
             use_linear_approx=USE_LINEAR_MI_APPROX,
             check_passive_algs_completed=CHECK_PASSIVE_ALGS_COMPLETED,
@@ -169,9 +170,8 @@ if __name__ == "__main__":
         for sub_fold in TARGET_METHODS:
             alg_name, active_method_name = parse_subfold_string(sub_fold)
 
-            algo_type, model_type = alg_name.split('-')
-            if algo_type == 'BAYES': HM = int(HM_0/10)
-            else: HM = HM_0
+            algo_type, _ = alg_name.split('-')
+            HM = HM_BAYES if algo_type == 'BAYES' else HM_FTRL
 
             print(f"\n=== Calculating Metrics for {alg_name} with {active_method_name} ===")
             runner = BenchmarkRunner(
@@ -200,9 +200,8 @@ if __name__ == "__main__":
             alg_name, active_method_name = parse_subfold_string(sub_fold)
             
             # Determine HM for plotting (should match what was used for metrics)
-            algo_type, model_type = alg_name.split('-')
-            if algo_type == 'BAYES': HM = int(HM_0/10)
-            else: HM = HM_0
+            algo_type, _ = alg_name.split('-')
+            HM = HM_BAYES if algo_type == 'BAYES' else HM_FTRL
 
             print(f"\n=== Generating Plots for {alg_name} with {active_method_name} ===")
             
@@ -221,36 +220,5 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"Failed to plot {metric} for {sub_fold}: {e}")
             
-            if CALCULATE_HEURISTIC:
-                try:
-                    plot_heuristic_correlation(
-                        F1, F2, F3, 
-                        hm=HM, 
-                        num_dm_dec=num_dm_dec, 
-                        dataset_fold=DATASET_FOLDS[0], 
-                        sub_fold=sub_fold, 
-                        save_figs=True,
-                        show_figs=False
-                    )
-                    plot_heuristic_stats(
-                        F1, F2, F3, 
-                        hm=HM, 
-                        num_dm_dec=num_dm_dec, 
-                        dataset_fold=DATASET_FOLDS[0], 
-                        sub_fold=sub_fold, 
-                        save_figs=True,
-                        show_figs=False
-                    )
-
-                    plot_heuristic_pearson_pvalues(
-                        F1, F2, F3, 
-                        hm=HM, 
-                        num_dm_dec=num_dm_dec, 
-                        dataset_fold=DATASET_FOLDS[0], 
-                        sub_fold=sub_fold, 
-                        save_figs=True,
-                        show_figs=False,
-                        threshold=PEARSON_THRESHOLD
-                    )
-                except Exception as e:
-                    print(f"Failed to plot heuristic for {sub_fold}: {e}")
+            # Diagnostic plotting for BALD+US is now handled internally in simulation.py
+            # controlled by the PLOT_MAPE_FIT flag.

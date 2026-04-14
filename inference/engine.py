@@ -453,7 +453,7 @@ class PreferenceSampler:
                 return H_marginal
 
 
-    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, pearson_threshold=0.01, use_linear_approx=False):
+    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False):
             """
             Determines the next best pair using the PROVIDED current_state.
             """
@@ -490,117 +490,48 @@ class PreferenceSampler:
                         scores = self._calculate_scores(candidates, samples, model_type, 'BALD')
                 
                 elif active_method == 'BALD+US':
+                    # Fallback or legacy support: default to BALD if simulation loop hasn't switched
+                    # Actually, the simulation loop should now pass 'BALD' or 'US' directly.
+                    # But if 'BALD+US' is passed here, we treat it as BALD.
                     omega_map = current_state
-                    # --- Step A: Compute US Scores (Aleatoric + Epistemic) ---
-                    # Uses only the MAP estimate. Fast.
-                    samples_map = np.atleast_2d(omega_map)
-                    scores_us = self._calculate_scores(candidates, samples_map, model_type, 'US')
-                    
-                    # --- Step B: Compute BALD Scores (Pure Epistemic) ---
-                    # Uses the Hessian (Sigma) to account for parameter uncertainty.
                     Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
                     if use_linear_approx:
-                         # Analytic approximation (Fast)
-                         scores_bald = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+                         scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
                     else:
-                         # Monte Carlo sampling (Exact but slower)
                          samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
-                         scores_bald = self._calculate_scores(candidates, samples, model_type, 'BALD')
-                    
-                    # 3. Corr
-                    # --- Step C: Strategy Switching Logic ---
-                    # We check if the two heuristics (US and BALD) are correlated.
-                    # - Low Correlation (High p-value): They disagree. This suggests distinct information. We prefer BALD to resolve ambiguity.
-                    # - High Correlation (Low p-value): They agree. Epistemic uncertainty is likely aligned with Aleatoric. We can use US (simpler).
-                    # - Exception: Significant NEGATIVE correlation (p < threshold, corr < 0) implies conflict. We use US.
-                    
-                    # Heuristic Check (Pearson p-value)
-                    if len(scores_us) < 2:
-                        scores = scores_bald
-                    else:
-                        pval = 1.0
-                        if np.std(scores_us) > 1e-9 and np.std(scores_bald) > 1e-9:
-                            try:
-                                # Left-tailed test: H1: correlation < 0 (Negative Correlation)
-                                corr_res = pearsonr(scores_us, scores_bald, alternative='less')
-                                pval = corr_res.pvalue
-                            except:
-                                pval = 1.0
-                        
-                        # Decision Rule:
-                        # If p < threshold (Significant Negative Correlation) -> Use US
-                        # Else -> Use BALD
-                        if pval < pearson_threshold: 
-                            scores = scores_us
-                        else: 
-                            scores = scores_bald
+                         scores = self._calculate_scores(candidates, samples, model_type, 'BALD')
             else:
                 raise ValueError(f"Unknown Algo: {algo_type}")
             
             return candidates[np.argmax(scores)]
 
-    def compute_heuristic_correlation(self, all_indices, alg, current_state, n_samples_mc=2000, use_linear_approx=False):
+    def calculate_all_pairs_mi(self, all_indices, alg, current_state, n_samples_mc=2000, use_linear_approx=False):
         """
-        Calculates correlation between BALD and US scores.
-        Returns: (correlation, scores_us, scores_bald)
+        Calculates the average Mutual Information (BALD score) across ALL possible pairs of items.
+        Used for strategy switching logic in the simulation loop.
         """
-        if current_state is None: return 0.0, 1.0, None, None
-
         algo_type, model_type = alg.split('-')
-        full_alg_name = alg
-
-        # 1. Generate Candidates (Same as suggest_next_pair)
-        possible_pairs = list(itertools.combinations(all_indices, 2))
-        seen = set(tuple(x) for x in self.prefs)
-        candidates = [p for p in possible_pairs if p not in seen and (p[1], p[0]) not in seen]
         
-        if not candidates: return 0.0, 1.0, None, None
-
-        # 2. Prepare Samples/Sigma
+        # 1. Generate ALL possible pairs
+        all_pairs = list(itertools.combinations(all_indices, 2))
+        
+        # 2. Get Posterior Samples or Sigma
         if algo_type == 'BAYES':
             samples = current_state
-            # US
-            scores_us = self._calculate_scores(candidates, samples, model_type, 'US')
-            # BALD
-            scores_bald = self._calculate_scores(candidates, samples, model_type, 'BALD')
-            
+            # Return mean of MI scores
+            scores = self._calculate_scores(all_pairs, samples, model_type, 'BALD')
+            return np.mean(scores)
+        
         elif algo_type == 'FTRL':
             omega_map = current_state
-            # For US (FTRL), we use MAP
-            # Note: _calculate_scores expects samples as (N_samples, D).
-            # MAP is (D,). So (1, D).
-            samples_map = np.atleast_2d(omega_map)
-            scores_us = self._calculate_scores(candidates, samples_map, model_type, 'US')
+            Sigma = self.compute_laplace_covariance(omega_map, alg=alg)
             
-            # For BALD (FTRL), we need Sigma
-            Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
             if use_linear_approx:
-                 scores_bald = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+                scores = self.bald_mi_linear_appr(omega_map, Sigma, all_pairs, model_type)
             else:
-                 samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
-                 scores_bald = self._calculate_scores(candidates, samples, model_type, 'BALD')
-        else:
-            return 0.0, 1.0, None, None
-
-        # 3. Correlation
-        if len(scores_us) < 2: return 0.0, 1.0, scores_us, scores_bald
+                samples = self.sample_laplace(omega_map, Sigma, alg=alg, n_samples=n_samples_mc)
+                scores = self._calculate_scores(all_pairs, samples, model_type, 'BALD')
+            
+            return np.mean(scores)
         
-        # scores_us and scores_bald are aligned by candidate index
-        corr = 0.0
-        pval = 1.0
-        
-        # Filter NaNs
-        valid_idx = np.isfinite(scores_us) & np.isfinite(scores_bald)
-        clean_us = scores_us[valid_idx]
-        clean_bald = scores_bald[valid_idx]
-        
-        if len(clean_us) > 1 and np.std(clean_us) > 1e-9 and np.std(clean_bald) > 1e-9:
-            try:
-                res = pearsonr(clean_us, clean_bald, alternative='less')
-                corr = res.statistic
-                pval = res.pvalue
-            except Exception as e:
-                # print(f"Pearson Error: {e}")
-                pass
-        
-        return (corr if not np.isnan(corr) else 0.0), (pval if not np.isnan(pval) else 1.0), scores_us, scores_bald
+        return 0.0

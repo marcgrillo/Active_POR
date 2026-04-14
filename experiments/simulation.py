@@ -2,6 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from scipy.optimize import curve_fit
 from common import utils
 from mcda.models import PiecewiseLinearTransformer
 from inference.engine import PreferenceSampler
@@ -43,7 +44,8 @@ def process_single_table(
     generate_scatter_plots=False,
     table_index=0,
     sub_fold="unknown",
-    pearson_threshold=0.01,
+    mape_threshold=0.05,
+    plot_mape_fit=False,
     n_samples_mc=2000,
     use_linear_approx=False,
     check_passive_algs_completed=False,
@@ -82,15 +84,12 @@ def process_single_table(
     sampler_active = PreferenceSampler(feature_matrix, [], transformer.total_params)
     
     active_pref_history = [] 
-    heuristic_history = []
-    heuristic_stats = [] # [mean_us, std_us, mean_bald, std_bald]
+    avg_mi_history = []
+    switched_to_us = False
 
-    pearson_pvalue_history = []
     w_active = None
     path_active_hist = os.path.join(output_dir, "active_prefs.npy")
-    path_heuristic = os.path.join(output_dir, "active_heuristic.npy")
-    path_heuristic_stats = os.path.join(output_dir, "active_heuristic_stats.npy")
-    path_pearson_pvalues = os.path.join(output_dir, "active_pearson_pvalues.npy")
+    path_avg_mi = os.path.join(output_dir, "active_avg_mi.npy")
 
     # Initialize Shared Passive Folder if reusing
     if check_passive_algs_completed and shared_passive_dir:
@@ -164,53 +163,78 @@ def process_single_table(
              np.save(path_passive, w_passive)
 
         # --- Track B: Active ---
-        if calculate_heuristic and w_active is not None and j > 1:
-            # Calculate Correlation BEFORE updating with new pair (using previous w_active)
-             try:
-                 corr, pval_pearson, s_us, s_bald = sampler_active.compute_heuristic_correlation(
-                     all_indices, 
-                     alg, 
-                     w_active, 
-                     n_samples_mc=n_samples_mc,
-                     use_linear_approx=use_linear_approx
-                 )
-                 heuristic_history.append(corr)
-                 pearson_pvalue_history.append(pval_pearson)
-                 
-                 # Calculate Stats
-                 if s_us is not None and len(s_us) > 0:
-                     stats = [np.mean(s_us), np.std(s_us), np.max(s_us), np.mean(s_bald), np.std(s_bald), np.max(s_bald)]
-                 else:
-                     stats = [np.nan] * 6
-                 heuristic_stats.append(stats)
-                 
+        effective_method = active_method
+        
+        # Trend Analysis for BALD+US
+        if active_method == 'BALD+US' and w_active is not None:
+            # 1. Calculate Average MI for ALL pairs
+            try:
+                mean_mi = sampler_active.calculate_all_pairs_mi(
+                    all_indices, 
+                    alg, 
+                    w_active, 
+                    n_samples_mc=n_samples_mc,
+                    use_linear_approx=use_linear_approx
+                )
+                avg_mi_history.append(mean_mi)
+                
+                # 2. Check for Strategy Switch
+                if not switched_to_us and len(avg_mi_history) >= 3:
+                    # Fit f(t) = 1/(a+t)
+                    t_vals = np.arange(1, len(avg_mi_history) + 1)
+                    mi_vals = np.array(avg_mi_history)
+                    
+                    def decay_func(t, a):
+                        return 1.0 / (a + t)
+                    
+                    # Initial guess for a: a = 1/MI_1 - 1
+                    # Avoid division by zero if MI is very small
+                    a0 = 1.0 / max(mi_vals[0], 1e-9) - 1.0
+                    
+                    try:
+                        popt, _ = curve_fit(decay_func, t_vals, mi_vals, p0=[a0])
+                        a_fit = popt[0]
+                        mi_fit = decay_func(t_vals, a_fit)
+                        
+                        # Calculate MAPE
+                        mape = np.mean(np.abs((mi_vals - mi_fit) / mi_vals))
+                        
+                        just_switched = False
+                        if mape > mape_threshold:
+                            switched_to_us = True
+                            just_switched = True
+                        
+                        # Diagnostic Plotting
+                        if plot_mape_fit and (j % 10 == 0 or just_switched):
+                            mape_dir = os.path.join("plots_analysis", "mape_fits", sub_fold, f"table_{table_index}")
+                            os.makedirs(mape_dir, exist_ok=True)
+                            
+                            plt.figure(figsize=(8, 5))
+                            plt.plot(t_vals, mi_vals, 'o-', label='Observed Avg MI')
+                            plt.plot(t_vals, mi_fit, '--', label=f'Fit: 1/({a_fit:.2f}+t)')
+                            plt.title(f"Step {j} | MAPE: {mape:.4f} | Switched: {switched_to_us}")
+                            plt.xlabel("Step (t)")
+                            plt.ylabel("Avg MI")
+                            plt.legend()
+                            plt.grid(True, alpha=0.3)
+                            
+                            filename = f"step_{j}.png"
+                            if just_switched:
+                                filename = f"step_{j}_SWITCH.png"
+                                
+                            plt.savefig(os.path.join(mape_dir, filename))
+                            plt.close()
+                            
+                    except Exception as e:
+                        # Log fit failure but don't crash
+                        pass
+                
+            except Exception as e:
+                print(f"MI calculation failed at step {j}: {e}")
 
-
-                 # Plot Scatter if requested (Every 50 steps)
-                 if generate_scatter_plots and j % 50 == 0 and s_us is not None:
-                     scatter_dir = os.path.join("plots_analysis", "scatter", sub_fold, f"table_{table_index}")
-                     os.makedirs(scatter_dir, exist_ok=True)
-                     
-                     plt.figure(figsize=(6,6))
-                     plt.scatter(s_us, s_bald, alpha=0.6, edgecolors='k')
-                     plt.xlabel("Uncertainty Sampling (Entropy)")
-                     plt.ylabel("BALD (Mutual Information)")
-                     plt.title(f"Step {j} | Corr: {corr:.3f} | Pearson p:{pval_pearson:.2e}")
-                     plt.grid(True, linestyle='--', alpha=0.6)
-                     plt.tight_layout()
-                     plt.savefig(os.path.join(scatter_dir, f"step_{j}.png"))
-                     plt.close()
-                     
-             except Exception as e:
-                 print(f"Heuristic calc/plot failed: {e}")
-                 heuristic_history.append(0.0)
-                 heuristic_stats.append([0.0]*6)
-                 pearson_pvalue_history.append(1.0)
-        elif calculate_heuristic:
-             # Before step 2 or if w_active missing
-             heuristic_history.append(0.0)
-             heuristic_stats.append([0.0]*6)
-             pearson_pvalue_history.append(1.0)
+        # Determine effective method for suggestion
+        if active_method == 'BALD+US':
+            effective_method = 'US' if switched_to_us else 'BALD'
 
         if j == 1:
             active_pair = ground_truth_prefs[0]
@@ -224,10 +248,9 @@ def process_single_table(
             suggested_pair = sampler_active.suggest_next_pair(
                 all_indices, 
                 alg=alg, 
-                active_method=active_method, 
+                active_method=effective_method, 
                 current_state=w_active,
                 n_samples_mc=n_samples_mc,
-                pearson_threshold=pearson_threshold,
                 use_linear_approx=use_linear_approx
             )
             
@@ -275,7 +298,5 @@ def process_single_table(
 
         np.save(path_active, w_active)
         np.save(path_active_hist, np.array(active_pref_history))
-        if calculate_heuristic:
-            np.save(path_heuristic, np.array(heuristic_history))
-            np.save(path_heuristic_stats, np.array(heuristic_stats))
-            np.save(path_pearson_pvalues, np.array(pearson_pvalue_history))
+        if active_method == 'BALD+US':
+            np.save(path_avg_mi, np.array(avg_mi_history))
