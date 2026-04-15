@@ -44,6 +44,7 @@ def process_single_table(
     generate_scatter_plots=False,
     table_index=0,
     sub_fold="unknown",
+    dataset_fold="unknown",
     mape_threshold=0.05,
     plot_mape_fit=False,
     n_samples_mc=2000,
@@ -167,79 +168,6 @@ def process_single_table(
              np.save(path_passive, w_passive)
 
         # --- Track B: Active ---
-        effective_method = active_method
-        
-        # Trend Analysis for BALD+US
-        if active_method == 'BALD+US' and w_active is not None:
-            # 1. Calculate Average MI for ALL pairs
-            try:
-                mean_mi = sampler_active.calculate_all_pairs_mi(
-                    all_indices, 
-                    alg, 
-                    w_active, 
-                    n_samples_mc=n_samples_mc,
-                    use_linear_approx=use_linear_approx
-                )
-                avg_mi_history.append(mean_mi)
-                
-                # 2. Check for Strategy Switch
-                if not switched_to_us and len(avg_mi_history) >= 3:
-                    # Fit f(t) = 1/(a+t)
-                    t_vals = np.arange(1, len(avg_mi_history) + 1)
-                    mi_vals = np.array(avg_mi_history)
-                    
-                    def decay_func(t, a):
-                        return 1.0 / (a + t)
-                    
-                    # Initial guess for a: a = 1/MI_1 - 1
-                    # Avoid division by zero if MI is very small
-                    a0 = 1.0 / max(mi_vals[0], 1e-9) - 1.0
-                    
-                    try:
-                        popt, _ = curve_fit(decay_func, t_vals, mi_vals, p0=[a0])
-                        a_fit = popt[0]
-                        mi_fit = decay_func(t_vals, a_fit)
-                        
-                        # Calculate MAPE
-                        mape = np.mean(np.abs((mi_vals - mi_fit) / mi_vals))
-                        
-                        just_switched = False
-                        if mape > mape_threshold:
-                            switched_to_us = True
-                            just_switched = True
-                        
-                        # Diagnostic Plotting
-                        if plot_mape_fit and (j % 10 == 0 or just_switched):
-                            mape_dir = os.path.join("plots_analysis", "mape_fits", sub_fold, f"table_{table_index}")
-                            os.makedirs(mape_dir, exist_ok=True)
-                            
-                            plt.figure(figsize=(8, 5))
-                            plt.plot(t_vals, mi_vals, 'o-', label='Observed Avg MI')
-                            plt.plot(t_vals, mi_fit, '--', label=f'Fit: 1/({a_fit:.2f}+t)')
-                            plt.title(f"Step {j} | MAPE: {mape:.4f} | Switched: {switched_to_us}")
-                            plt.xlabel("Step (t)")
-                            plt.ylabel("Avg MI")
-                            plt.legend()
-                            plt.grid(True, alpha=0.3)
-                            
-                            filename = f"step_{j}.png"
-                            if just_switched:
-                                filename = f"step_{j}_SWITCH.png"
-                                
-                            plt.savefig(os.path.join(mape_dir, filename))
-                            plt.close()
-                            
-                    except Exception as e:
-                        # Log fit failure but don't crash
-                        pass
-                
-            except Exception as e:
-                print(f"MI calculation failed at step {j}: {e}")
-
-        # Determine effective method for suggestion
-        if active_method == 'BALD+US':
-            effective_method = 'US' if switched_to_us else 'BALD'
-
         if j == 1:
             active_pair = ground_truth_prefs[0]
             sampler_active.add_preference(active_pair[0], active_pair[1])
@@ -249,17 +177,82 @@ def process_single_table(
             if w_active is None:
                 raise ValueError(f"w_active missing at step {j}")
 
-            suggested_pair = sampler_active.suggest_next_pair(
-                all_indices, 
-                alg=alg, 
-                active_method=effective_method, 
-                current_state=w_active,
-                n_samples_mc=n_samples_mc,
-                use_linear_approx=use_linear_approx
-            )
-            
-            if suggested_pair is None:
-                suggested_pair = ground_truth_prefs[j-1]
+            if active_method == 'BALD+US' and not switched_to_us:
+                try:
+                    candidates, bald_scores = sampler_active.get_candidate_scores(
+                        all_indices, alg, 'BALD', w_active, n_samples_mc, use_linear_approx
+                    )
+                    
+                    mean_mi = np.mean(bald_scores) if candidates else 0.0
+                    avg_mi_history.append(mean_mi)
+                    
+                    if len(avg_mi_history) >= 3:
+                        t_vals = np.arange(1, len(avg_mi_history) + 1)
+                        mi_vals = np.array(avg_mi_history)
+                        
+                        def decay_func(t, a):
+                            return 1.0 / (a + t)
+                        
+                        a0 = 1.0 / max(mi_vals[0], 1e-9) - 1.0
+                        
+                        try:
+                            popt, _ = curve_fit(decay_func, t_vals, mi_vals, p0=[a0])
+                            a_fit = popt[0]
+                            mi_fit = decay_func(t_vals, a_fit)
+                            
+                            mape = np.mean(np.abs((mi_vals - mi_fit) / mi_vals))
+                            
+                            just_switched = False
+                            if mape > mape_threshold:
+                                switched_to_us = True
+                                just_switched = True
+                            
+                            if plot_mape_fit and (j % 10 == 0 or just_switched):
+                                mape_dir = os.path.join("plots_analysis", "mape_fits", dataset_fold, sub_fold, f"table_{table_index}")
+                                os.makedirs(mape_dir, exist_ok=True)
+                                
+                                plt.figure(figsize=(8, 5))
+                                plt.plot(t_vals, mi_vals, 'o-', label='Observed Avg MI')
+                                plt.plot(t_vals, mi_fit, '--', label=f'Fit: 1/({a_fit:.2f}+t)')
+                                plt.title(f"Step {j} | MAPE: {mape:.4f} | Switched: {switched_to_us}")
+                                plt.xlabel("Step (t)")
+                                plt.ylabel("Avg MI")
+                                plt.legend()
+                                plt.grid(True, alpha=0.3)
+                                
+                                filename = f"step_{j}.png"
+                                if just_switched:
+                                    filename = f"step_{j}_SWITCH.png"
+                                    
+                                plt.savefig(os.path.join(mape_dir, filename))
+                                plt.close()
+                                
+                        except Exception as e:
+                            pass
+                except Exception as e:
+                    print(f"MI calculation failed at step {j}: {e}")
+                    candidates = []
+                    bald_scores = []
+
+                if not switched_to_us:
+                    suggested_pair = candidates[np.argmax(bald_scores)] if candidates else ground_truth_prefs[j-1]
+                else:
+                    candidates, us_scores = sampler_active.get_candidate_scores(
+                        all_indices, alg, 'US', w_active, n_samples_mc, use_linear_approx
+                    )
+                    suggested_pair = candidates[np.argmax(us_scores)] if candidates else ground_truth_prefs[j-1]
+
+            elif active_method == 'BALD+US' and switched_to_us:
+                candidates, scores = sampler_active.get_candidate_scores(
+                    all_indices, alg, 'US', w_active, n_samples_mc, use_linear_approx
+                )
+                suggested_pair = candidates[np.argmax(scores)] if candidates else ground_truth_prefs[j-1]
+
+            else:
+                candidates, scores = sampler_active.get_candidate_scores(
+                    all_indices, alg, active_method, w_active, n_samples_mc, use_linear_approx
+                )
+                suggested_pair = candidates[np.argmax(scores)] if candidates else ground_truth_prefs[j-1]
 
             # --- Consistency Check & Response Simulation ---
             pair_key = frozenset(suggested_pair)

@@ -98,6 +98,7 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                             'generate_scatter_plots': generate_scatter_plots,
                             'table_index': i,
                             'sub_fold': sub_fold,
+                            'dataset_fold': dataset_fold,
                             'mape_threshold': mape_threshold,
                             'plot_mape_fit': plot_mape_fit,
                             'n_samples_mc': n_samples_mc,

@@ -453,85 +453,51 @@ class PreferenceSampler:
                 return H_marginal
 
 
-    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False):
-            """
-            Determines the next best pair using the PROVIDED current_state.
-            """
-            if current_state is None:
-                raise ValueError("suggest_next_pair requires 'current_state'.")
-
-            algo_type, model_type = alg.split('-')
-            full_alg_name = alg
-
-            # 1. Generate Candidates
-            possible_pairs = list(itertools.combinations(all_indices, 2))
-            seen = set(tuple(x) for x in self.prefs)
-            candidates = [p for p in possible_pairs if p not in seen and (p[1], p[0]) not in seen]
-            
-            if not candidates: return None
-            
-            # 2. Calculate Scores
-            if algo_type == 'BAYES':
-                samples = current_state
-                scores = self._calculate_scores(candidates, samples, model_type, active_method)
-            elif algo_type == 'FTRL':
-                if active_method == 'US':
-                    # US: Use MAP point only
-                    samples = np.atleast_2d(current_state)
-                    scores = self._calculate_scores(candidates, samples, model_type, active_method)
-                elif active_method == 'BALD': 
-                    # BALD: Need Laplace Sampling
-                    omega_map = current_state
-                    Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
-                    if use_linear_approx:
-                        scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
-                    else:
-                        samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
-                        scores = self._calculate_scores(candidates, samples, model_type, 'BALD')
-                
-                elif active_method == 'BALD+US':
-                    # Fallback or legacy support: default to BALD if simulation loop hasn't switched
-                    # Actually, the simulation loop should now pass 'BALD' or 'US' directly.
-                    # But if 'BALD+US' is passed here, we treat it as BALD.
-                    omega_map = current_state
-                    Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
-                    if use_linear_approx:
-                         scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
-                    else:
-                         samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
-                         scores = self._calculate_scores(candidates, samples, model_type, 'BALD')
-            else:
-                raise ValueError(f"Unknown Algo: {algo_type}")
-            
-            return candidates[np.argmax(scores)]
-
-    def calculate_all_pairs_mi(self, all_indices, alg, current_state, n_samples_mc=2000, use_linear_approx=False):
+    def get_candidate_scores(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False):
         """
-        Calculates the average Mutual Information (BALD score) across ALL possible pairs of items.
-        Used for strategy switching logic in the simulation loop.
+        Determines the candidates and their scores using the PROVIDED current_state.
         """
+        if current_state is None:
+            raise ValueError("get_candidate_scores requires 'current_state'.")
+
         algo_type, model_type = alg.split('-')
+        full_alg_name = alg
+
+        # 1. Generate Candidates
+        possible_pairs = list(itertools.combinations(all_indices, 2))
+        seen = set(tuple(x) for x in self.prefs)
+        candidates = [p for p in possible_pairs if p not in seen and (p[1], p[0]) not in seen]
         
-        # 1. Generate ALL possible pairs
-        all_pairs = list(itertools.combinations(all_indices, 2))
+        if not candidates: return [], []
         
-        # 2. Get Posterior Samples or Sigma
+        # 2. Calculate Scores
         if algo_type == 'BAYES':
             samples = current_state
-            # Return mean of MI scores
-            scores = self._calculate_scores(all_pairs, samples, model_type, 'BALD')
-            return np.mean(scores)
-        
+            scores = self._calculate_scores(candidates, samples, model_type, active_method)
         elif algo_type == 'FTRL':
-            omega_map = current_state
-            Sigma = self.compute_laplace_covariance(omega_map, alg=alg)
-            
-            if use_linear_approx:
-                scores = self.bald_mi_linear_appr(omega_map, Sigma, all_pairs, model_type)
-            else:
-                samples = self.sample_laplace(omega_map, Sigma, alg=alg, n_samples=n_samples_mc)
-                scores = self._calculate_scores(all_pairs, samples, model_type, 'BALD')
-            
-            return np.mean(scores)
+            if active_method == 'US':
+                # US: Use MAP point only
+                samples = np.atleast_2d(current_state)
+                scores = self._calculate_scores(candidates, samples, model_type, active_method)
+            elif active_method in ['BALD', 'BALD+US']: 
+                # BALD: Need Laplace Sampling
+                omega_map = current_state
+                Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
+                if use_linear_approx:
+                    scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+                else:
+                    samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
+                    scores = self._calculate_scores(candidates, samples, model_type, 'BALD')
+        else:
+            raise ValueError(f"Unknown Algo: {algo_type}")
         
-        return 0.0
+        return candidates, scores
+
+    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False):
+        """
+        Determines the next best pair using the PROVIDED current_state.
+        """
+        candidates, scores = self.get_candidate_scores(all_indices, alg, active_method, current_state, n_samples_mc, use_linear_approx)
+        if not candidates: return None
+        return candidates[np.argmax(scores)]
+
