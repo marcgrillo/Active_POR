@@ -58,6 +58,20 @@ class PreferenceSampler:
             """Verifies if inversion was successful."""
             result = A @ A_inv
             return np.allclose(result, np.eye(A.shape[0]), atol=1e-3)
+            
+    def _get_alr_jacobian(self, w):
+        """
+        Computes the Nx(N-1) Jacobian of the softmax transformation evaluator at w.
+        Used for mapping between unconstrained space and the probability simplex.
+        """
+        N = len(w)
+        J = np.zeros((N, N - 1))
+        for i in range(N - 1):
+            for j in range(N - 1):
+                J[i, j] = w[i] * ((1.0 if i == j else 0.0) - w[j])
+        for j in range(N - 1):
+            J[N - 1, j] = -w[N - 1] * w[j]
+        return J
 
     # ------------------------------------------------------------------
     # Likelihood Functions
@@ -306,14 +320,36 @@ class PreferenceSampler:
 
             # Direct Inversion with Jitter
             # We add jitter to ensure the matrix is Positive Definite before inversion
-            F += np.eye(d) * jitter
-            Sigma = safe_inverse(F)
-            
-            if not self._check_inverse(F, Sigma):
-                print('Inversion was not successful. Printing F and Sigma: \n', F, Sigma)
-                time.sleep(5)
-
-            return Sigma
+            if alg == 'FTRL-LIN':
+                # Map to unconstrained space for simplex using ALR
+                N = len(omega_map)
+                J = self._get_alr_jacobian(omega_map)
+                
+                # F is the Hessian of the negative log posterior. So H_w = -F
+                # Unconstrained Hessian H_y = - J.T @ H_w @ J = J.T @ F @ J
+                H_y = J.T @ F @ J
+                H_y += np.eye(N - 1) * jitter
+                
+                # Sigma_y = inv(H_y)
+                try:
+                    L = np.linalg.cholesky(H_y)
+                    Sigma_y = np.linalg.solve(L.T, np.linalg.solve(L, np.eye(N - 1)))
+                except np.linalg.LinAlgError:
+                    Sigma_y = safe_inverse(H_y)
+                
+                if not self._check_inverse(H_y, Sigma_y):
+                    print('Inversion of ALR Hessian was not successful. \n', H_y, Sigma_y)
+                    time.sleep(5)
+                return Sigma_y
+            else:
+                F += np.eye(d) * jitter
+                Sigma = safe_inverse(F)
+                
+                if not self._check_inverse(F, Sigma):
+                    print('Inversion was not successful. Printing F and Sigma: \n', F, Sigma)
+                    time.sleep(5)
+    
+                return Sigma
 
     def sample_laplace(self, omega_map, Sigma, alg, n_samples=1000):
         """
@@ -322,26 +358,38 @@ class PreferenceSampler:
         Args:
             alg (str): 'FTRL-BT' or 'FTRL-LIN'.
                     FTRL-BT samples are NOT clipped/bounded.
-                    FTRL-LIN samples ARE clipped to Simplex.
+                    FTRL-LIN samples use ALR unconstrained sampling and are mapped back to Simplex.
         """
         rng = np.random.default_rng()
         d = len(omega_map)
         
-        try:
-            raw_samples = rng.multivariate_normal(mean=omega_map, cov=Sigma, size=n_samples)
-        except np.linalg.LinAlgError:
-            print("Covariance matrix not positive definite. Using purely MAP samples.")
-            raw_samples = np.tile(omega_map, (n_samples, 1))
+        if alg == 'FTRL-LIN':
+            # FTRL-LIN: ALR unconstrained sampling
+            y_map = np.log(omega_map[:-1]) - np.log(omega_map[-1])
+            try:
+                y_samples = rng.multivariate_normal(mean=y_map, cov=Sigma, size=n_samples)
+            except np.linalg.LinAlgError:
+                print("Covariance matrix not positive definite. Using purely MAP samples.")
+                y_samples = np.tile(y_map, (n_samples, 1))
+                
+            # Map back to simplex: w = softmax( [y, 0] )
+            y_samples_with_zero = np.hstack([y_samples, np.zeros((n_samples, 1))])
+            max_y = np.max(y_samples_with_zero, axis=1, keepdims=True)
+            exp_y = np.exp(y_samples_with_zero - max_y)
+            samples = exp_y / np.sum(exp_y, axis=1, keepdims=True)
             
-        if alg == 'FTRL-BT':
-            # bald_smps_mc for FTRL-BT returns samples directly 
-            # without clipping or normalization.
-            return raw_samples
-        else:
-            # FTRL-LIN: Constrained to Simplex
-            samples = np.clip(raw_samples, 1e-9, 1.0)
+            # Ensure strict simplex boundaries numerically
+            samples = np.clip(samples, 1e-9, 1.0)
             samples = samples / np.sum(samples, axis=1, keepdims=True)
             return samples
+        else:
+            # FTRL-BT: direct sampling without constraints
+            try:
+                raw_samples = rng.multivariate_normal(mean=omega_map, cov=Sigma, size=n_samples)
+            except np.linalg.LinAlgError:
+                print("Covariance matrix not positive definite. Using purely MAP samples.")
+                raw_samples = np.tile(omega_map, (n_samples, 1))
+            return raw_samples
         
     def bald_mi_linear_appr(self, omega_map, Sigma, candidates, model_type):
         """
@@ -359,10 +407,6 @@ class PreferenceSampler:
 
         # Utilities: (N_cand,)
         t = vec_diff @ omega_map
-        
-        # 1. Compute Var(t) = x.T @ Sigma @ x (Epistemic Uncertainty in latent space)
-        # This measures how much the model is uncertain about the utility difference for this pair
-        var_t = np.einsum('ij,jk,ik->i', vec_diff, Sigma, vec_diff)
 
         if model_type == 'BT': 
             p = expit(t)
@@ -370,23 +414,30 @@ class PreferenceSampler:
             # MacKay's Evidence Approximation / Probit Approximation for MI
             # MI approx 0.5 * p(1-p) * Var(t)
             # Intuition: Variance is highest when p is near 0.5, scaled by parameter uncertainty.
+            # 1. Compute Var(t) = x.T @ Sigma @ x (Epistemic Uncertainty in latent space)
+            # This measures how much the model is uncertain about the utility difference for this pair
+            var_t = np.einsum('ij,jk,ik->i', vec_diff, Sigma, vec_diff)
             mi = 0.5 * p * (1.0 - p) * var_t
             
-        elif model_type == 'LIN':  
+        elif model_type == 'LIN': 
+            # The input Sigma is the covariance in the (N-1) unconstrained space
             p = 0.5 * (1.0 + t)
             p = np.clip(p, 1e-12, 1-1e-12)
+
+            # Reconstruct Jacobian for ALR mapping
+            J = self._get_alr_jacobian(omega_map)
             
-            # Compute Var(p) using the same X_outer transform as the Hessian
-            # Since p = 0.5 * (1 + delta_x @ omega), its variance is
-            # (0.5 * (1 + x)).T @ Sigma @ (0.5 * (1 + x))
-            X_outer_cand = 0.5 * (1.0 + vec_diff)
-            var_p = np.einsum('ij,jk,ik->i', X_outer_cand, Sigma, X_outer_cand)
-            
+            # Project N x N effective covariance: Sigma_eff = J @ Sigma_y @ J.T
+            Sigma_eff = J @ Sigma @ J.T
+
+            # Now calculate var_p using the effective covariance in w-space
+            # Since p = 0.5 * (1 + delta_x @ omega), grad_w = 0.5 * vec_diff
+            grad_w = 0.5 * vec_diff 
+            var_p = np.einsum('ij,jk,ik->i', np.atleast_2d(grad_w), Sigma_eff, np.atleast_2d(grad_w))
+
             # Analytic MI for linear probability model
             # Note: We use the standard p(1-p) denominator here, though it is 
             # unstable at the boundaries (p=1) for linear models.
-            # Using Monte Carlo sampling (USE_LINEAR_MI_APPROX=False) is 
-            # recommended for theoretical consistency with this model.
             mi = 0.5 * var_p / (p * (1.0 - p))
             
         return mi
@@ -500,4 +551,4 @@ class PreferenceSampler:
         candidates, scores = self.get_candidate_scores(all_indices, alg, active_method, current_state, n_samples_mc, use_linear_approx)
         if not candidates: return None
         return candidates[np.argmax(scores)]
-
+

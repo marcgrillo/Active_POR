@@ -27,7 +27,8 @@ F3 = [100]
 # DATASET_FOLDS: List of dataset names to process. 
 #       The code will look for raw data in: 'datasets/{name}/'
 #       The code will save results in: 'samples/{name}/', 'tests/{name}/', and 'figs/{name}/'
-DATASET_FOLDS = ['lin_dataset', 'default_dataset']
+DATASET_FOLDS = ['lin_dataset', 'default_dataset', '20_dataset']
+DATASET_FOLDS = ['20_dataset']
 
 # ==============================================================================
 # 2. Algorithm Configuration
@@ -54,7 +55,7 @@ TARGET_METHODS = [
     'BAYES_LIN_BALD+US',
 ] 
 
-#TARGET_METHODS = ['FTRL_LIN_BALD'] 
+#TARGET_METHODS = ['FTRL_LIN_BALD+US'] 
 
 # ==============================================================================
 # 3. Simulation Parameters
@@ -66,7 +67,7 @@ HM_BAYES = 30
 
 # NUM_CORES: Number of CPU cores to use for parallel processing of Human Models (Tables).
 #            If set to 1, processing is sequential.
-NUM_CORES = 10 
+NUM_CORES = 10
 
 
 # MAPE_THRESHOLD: Used only for 'BALD+US' switching strategy.
@@ -77,14 +78,14 @@ MAPE_THRESHOLD = 0.15
 # N_SAMPLES_MC: Number of Monte Carlo samples used to approximate the posterior distribution
 #       when calculating Mutual Information (BALD), specifically when analytic approximations
 #       are not used or not applicable. Higher = more accurate but slower.
-N_SAMPLES_MC = 2000 
+N_SAMPLES_MC = 2000
 
 # USE_LINEAR_MI_APPROX: Boolean flag for BALD optimization.
 #       - True: Use a closed-form analytic linear approximation for Mutual Information.
 #               Drastically faster but relies on linear assumptions.
 #       - False: Use Monte Carlo sampling to estimate MI. Slower but potentially more robust
 #                for non-linear scenarios or complex posteriors.
-USE_LINEAR_MI_APPROX = True
+USE_LINEAR_MI_APPROX = False
 # PLOT_MAPE_FIT: If True, saves diagnostic plots of the MI decay fit every 10 steps.
 PLOT_MAPE_FIT = True
 

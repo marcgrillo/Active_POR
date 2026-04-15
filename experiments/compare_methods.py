@@ -93,7 +93,7 @@ if __name__ == "__main__":
     F1 = [30]
     F2 = [4]
     F3 = [100]
-    DATASET = 'lin_dataset'
+    DATASET = 'default_dataset'
     
     METRICS = ['asrs', 'asps']
     MODELS = ['FTRL_LIN', 'FTRL_BT', 'BAYES_LIN', 'BAYES_BT']
