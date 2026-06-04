@@ -58,7 +58,8 @@ def process_single_table(
     use_hmc_sampler=False,
     disable_tqdm=False,
     progress_dict=None,
-    n_samples_mcmc=2000):
+    n_samples_mcmc=2000,
+    compute_error_diagnostics=True):
     """
     Runs the active learning simulation for a single Human Model (table).
     
@@ -100,8 +101,13 @@ def process_single_table(
 
     sum_Delta_all = 0.0
     sum_B_all = 0.0
+    # BALD+US needs the link residual Delta_t for its switch rule, so diagnostics are forced
+    # on for it regardless of the flag. For all other strategies the diagnostics can be disabled
+    # to skip the expensive per-step FTRL hypothetical refits / BAYES surprise during large
+    # performance sweeps (H1 runs); enable them only for the error study (H2).
+    diag_on = compute_error_diagnostics or (active_method == 'BALD+US')
     error_csv_path = os.path.join(output_dir, "error_scores.csv")
-    if overwrite or not os.path.exists(error_csv_path):
+    if diag_on and (overwrite or not os.path.exists(error_csv_path)):
         with open(error_csv_path, 'w') as f:
             f.write("step,E_link_rel,E_est_FTLT,epsilon_t,C_t_size,rho_t,E_size,E_sep,j_star,hessian_cond,clipping_used,h_or_scaling,D_j\n")
 
@@ -229,8 +235,11 @@ def process_single_table(
                 suggested_pair = candidates[np.argmax(scores)] if candidates else ground_truth_prefs[j-1]
 
             # --- Diagnostic Computation for BAYES and FTRL ---
+            # Skipped entirely when diagnostics are off (saves the expensive FTRL hypothetical
+            # refits / BAYES surprise). step_diag_info stays None, so the error block below is
+            # also skipped.
             step_diag_info = None
-            if w_active is not None and len(w_active) > 0:
+            if diag_on and w_active is not None and len(w_active) > 0:
                 if alg in ['BAYES-LIN', 'BAYES-BT']:
                     try:
                         samples = w_active

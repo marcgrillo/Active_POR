@@ -103,6 +103,14 @@ USE_MH_SAMPLER = True
 # Larger values reduce MC standard errors and therefore decrease R_MC_t.
 N_SAMPLES_MCMC = 2000
 
+# COMPUTE_ERROR_DIAGNOSTICS: Whether to compute and log the E_link / E_est error diagnostics
+#       (error_scores.csv) at every step. These require expensive per-step FTRL hypothetical
+#       refits / BAYES surprise estimates.
+#       - True:  Enable. Needed for the error study (H2) and BALD+US (always forced on internally).
+#       - False: Disable for fast large-scale performance sweeps (H1). Performance metrics
+#                (ASRS/ASPS/AIOS) are unaffected.
+COMPUTE_ERROR_DIAGNOSTICS = True
+
 # ==============================================================================
 # 4. Execution Flow Flags
 # ==============================================================================
@@ -173,6 +181,7 @@ if __name__ == "__main__":
             use_hmc_sampler=True,
             num_cores=NUM_CORES,
             n_samples_mcmc=N_SAMPLES_MCMC,
+            compute_error_diagnostics=COMPUTE_ERROR_DIAGNOSTICS,
         )
         
     # 2. Calculate Metrics

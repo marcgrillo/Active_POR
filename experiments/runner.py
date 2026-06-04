@@ -8,7 +8,7 @@ from tqdm import tqdm
 from common import utils
 from experiments.simulation import process_single_table
 
-def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False, check_passive_algs_completed=False, use_mh_sampler=False, use_hmc_sampler=False, num_cores=1, n_samples_mcmc=2000):
+def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False, check_passive_algs_completed=False, use_mh_sampler=False, use_hmc_sampler=False, num_cores=1, n_samples_mcmc=2000, compute_error_diagnostics=True):
     """
     Orchestrates the experiments across multiple datasets and configurations.
     
@@ -108,7 +108,8 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                             'shared_passive_dir': passive_method_dir,
                             'use_mh_sampler': use_mh_sampler,
                             'use_hmc_sampler': use_hmc_sampler,
-                            'n_samples_mcmc': n_samples_mcmc
+                            'n_samples_mcmc': n_samples_mcmc,
+                            'compute_error_diagnostics': compute_error_diagnostics
                         }
                         tasks.append(task_args)
 
