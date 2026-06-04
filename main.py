@@ -22,13 +22,13 @@ F2 = [4]
 #     of the total possible unique pairs. E.g., 100 means the budget is enough to 
 #     compare 100% of pairs (though the active learner selects which ones).
 #     Budget N = round(F3 * (F1 * (F1 - 1) / 200))
-F3 = [100]
+F3 = [10]
 
 # DATASET_FOLDS: List of dataset names to process. 
 #       The code will look for raw data in: 'datasets/{name}/'
 #       The code will save results in: 'samples/{name}/', 'tests/{name}/', and 'figs/{name}/'
-DATASET_FOLDS = ['lin_dataset', 'default_dataset', '20_dataset']
-DATASET_FOLDS = ['20_dataset']
+DATASET_FOLDS = ['default_dataset']
+#DATASET_FOLDS = ['lin_dataset']
 
 # ==============================================================================
 # 2. Algorithm Configuration
@@ -43,27 +43,18 @@ DATASET_FOLDS = ['20_dataset']
 #         - 'PASSIVE': Random selection (usually implicitly handled, not manually set here)
 TARGET_METHODS = [
     'BAYES_LIN_BALD',      # Bayesian Linear Model with BALD
-    #'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
+    'BAYES_BT_BALD',       # Bayesian Bradley-Terry with BALD
     'FTRL_LIN_BALD',        # FTRL Linear Model with BALD
     'FTRL_BT_BALD',         # FTRL Bradley-Terry with BALD
-    'FTRL_BT_BALD+US',      # FTRL BT with Hybrid BALD + Uncertainty Sampling
-    'BAYES_LIN_US',        # Bayesian Linear with Uncertainty Sampling
-    #'BAYES_BT_US',         # Bayesian BT with Uncertainty Sampling
-    'FTRL_LIN_US',          # FTRL Linear with Uncertainty Sampling
-    'FTRL_BT_US',           # FTRL BT with Uncertainty Sampling
-    'FTRL_LIN_BALD+US',
-    'BAYES_LIN_BALD+US',
 ] 
-
-#TARGET_METHODS = ['FTRL_LIN_BALD+US'] 
 
 # ==============================================================================
 # 3. Simulation Parameters
 # ==============================================================================
 # HM_FTRL: Number of "Human Models" to process for FTRL algorithms.
-HM_FTRL = 30
+HM_FTRL = 5
 # HM_BAYES: Number of "Human Models" to process for BAYES algorithms.
-HM_BAYES = 30
+HM_BAYES = 5
 
 # NUM_CORES: Number of CPU cores to use for parallel processing of Human Models (Tables).
 #            If set to 1, processing is sequential.
@@ -86,8 +77,17 @@ N_SAMPLES_MC = 2000
 #       - False: Use Monte Carlo sampling to estimate MI. Slower but potentially more robust
 #                for non-linear scenarios or complex posteriors.
 USE_LINEAR_MI_APPROX = False
+
+# USE_IS_BALD: Flag to enable Importance Sampling for FTRL-LIN-BALD calculations.
+#       When True, it bypasses the USE_LINEAR_MI_APPROX flag for LIN models and 
+#       uses 5k Dirichlet samples to estimate MI, falling back to Taylor if ESS is low.
+USE_IS_BALD = True
+
 # PLOT_MAPE_FIT: If True, saves diagnostic plots of the MI decay fit every 10 steps.
 PLOT_MAPE_FIT = True
+
+# PLOT_DIAGNOSTICS: If True, plots BALD diagnostic quantities (B_t, S_t, Delta_t, Z_t) for BAYES-LIN BALD.
+# (Removed PLOT_DIAGNOSTICS)
 
 # CHECK_PASSIVE_ALGS_COMPLETED: Optimization flag.
 #       - True: Before running a simulation, check if a 'PASSIVE' (Random) run already 
@@ -98,6 +98,10 @@ CHECK_PASSIVE_ALGS_COMPLETED = True
 
 # USE_MH_SAMPLER: Flag to enable Metropolis-Hastings sampling for the BAYES LIN configuration
 USE_MH_SAMPLER = True
+
+# N_SAMPLES_MCMC: Number of MCMC posterior samples (HMC/MH).
+# Larger values reduce MC standard errors and therefore decrease R_MC_t.
+N_SAMPLES_MCMC = 2000
 
 # ==============================================================================
 # 4. Execution Flow Flags
@@ -111,7 +115,7 @@ OVERWRITE = True
 # CALCULATE_METRICS: 
 #       - True: Run the metric calculation phase (e.g., Percent Increase, Accuracy) 
 #               after the simulation loop.
-CALCULATE_METRICS = True
+CALCULATE_METRICS = False
 
 # FORCE_METRICS: 
 #       - True: Re-calculate metrics even if the metric summary files already exist.
@@ -121,7 +125,7 @@ FORCE_METRICS = True
 # GENERATE_PLOTS: 
 #       - True: Generate visualization plots (line graphs of performance vs. queries) 
 #               and save them to the results folders.
-GENERATE_PLOTS = True
+GENERATE_PLOTS = False
 
 # CALCULATE_HEURISTIC: 
 #       - True: Compute additional heuristic statistics (e.g., correlations between 
@@ -163,9 +167,12 @@ if __name__ == "__main__":
             plot_mape_fit=PLOT_MAPE_FIT,
             n_samples_mc=N_SAMPLES_MC,
             use_linear_approx=USE_LINEAR_MI_APPROX,
+            use_is_bald=USE_IS_BALD,
             check_passive_algs_completed=CHECK_PASSIVE_ALGS_COMPLETED,
             use_mh_sampler=USE_MH_SAMPLER,
+            use_hmc_sampler=True,
             num_cores=NUM_CORES,
+            n_samples_mcmc=N_SAMPLES_MCMC,
         )
         
     # 2. Calculate Metrics

@@ -93,23 +93,26 @@ if __name__ == "__main__":
     F1 = [30]
     F2 = [4]
     F3 = [100]
-    DATASET = 'default_dataset'
+    #DATASET = '5_dataset'
+    DATASET_FOLDS = ['default_dataset', '5_dataset', '15_dataset', '30_dataset']
     
     METRICS = ['asrs', 'asps']
-    MODELS = ['FTRL_LIN', 'FTRL_BT', 'BAYES_LIN', 'BAYES_BT']
+    #MODELS = ['FTRL_LIN', 'FTRL_BT', 'BAYES_LIN', 'BAYES_BT']
+    MODELS = ['FTRL_LIN', 'FTRL_BT', 'BAYES_LIN']
     
-    output_dir = os.path.join('figs', DATASET, 'comparisons')
-    
-    print("Starting Comparative Analysis...")
-    for model in MODELS:
-        for metric in METRICS:
-            plot_comparison(
-                metric=metric,
-                model_base=model,
-                dataset=DATASET,
-                f1=F1[0],
-                f2=F2[0],
-                f3=F3[0],
-                save_dir=output_dir
-            )
-    print("Done.")
+    for DATASET in DATASET_FOLDS:
+        output_dir = os.path.join('figs', DATASET, 'comparisons')
+        
+        print("Starting Comparative Analysis...")
+        for model in MODELS:
+            for metric in METRICS:
+                plot_comparison(
+                    metric=metric,
+                    model_base=model,
+                    dataset=DATASET,
+                    f1=F1[0],
+                    f2=F2[0],
+                    f3=F3[0],
+                    save_dir=output_dir
+                )
+        print("Done.")

@@ -116,6 +116,121 @@ class PreferenceSampler:
         sampler.run_nested(print_progress=False, dlogz = dlz)
         return sampler.results.samples_equal()
 
+    def run_hmc_sampler(self, model='BT', n_samples=2000, n_leapfrog=10, step_size=0.05, tune_steps=500):
+        """
+        Hamiltonian Monte Carlo sampling for BT model in unconstrained log-space.
+        """
+        if model != 'BT':
+            raise ValueError("HMC sampler currently only implemented for BT model.")
+        
+        # We sample theta = log(w) where w ~ Gamma(alpha, beta)
+        alpha = self.gamma_alpha_bayes_bt
+        beta = self.gamma_beta_bayes_bt
+        
+        def energy(theta):
+            w = np.exp(theta)
+            # Log likelihood
+            u_diff = self.X_diff @ w
+            ll = np.sum(-np.logaddexp(0, -u_diff))
+            # Log prior in theta space: log P(w) + sum(theta_i)
+            # log P(w) = sum((alpha - 1)*log(w) - w/beta) = sum((alpha - 1)*theta - w/beta)
+            lprior_theta = np.sum((alpha - 1)*theta - w/beta + theta)
+            return -(ll + lprior_theta)
+
+        def grad_energy(theta):
+            w = np.exp(theta)
+            u_diff = self.X_diff @ w
+            # grad LL w.r.t w: X_diff.T @ (1 - sigmoid(u_diff))
+            # Since sigmoid(x) = expit(x), 1 - sigmoid(x) = expit(-x)
+            grad_ll_w = self.X_diff.T @ expit(-u_diff)
+            # grad of energy w.r.t theta_i = - [ grad_ll_w_i * w_i + alpha - w_i/beta ]
+            return - (grad_ll_w * w + alpha - w / beta)
+
+        rng = np.random.default_rng()
+        # Initialize
+        try:
+            w_map = self.find_map(model=model)
+            theta = np.log(np.clip(w_map, 1e-6, None))
+        except Exception:
+            theta = np.zeros(self.n_params)
+
+        epsilon = step_size
+        target_accept = 0.65
+        
+        # Tuning phase
+        for t in range(tune_steps):
+            p = rng.normal(0, 1, self.n_params)
+            current_p = p.copy()
+            current_theta = theta.copy()
+            
+            theta_prop = theta.copy()
+            p_prop = p.copy()
+            
+            # Leapfrog
+            grad_U = grad_energy(theta_prop)
+            p_prop -= 0.5 * epsilon * grad_U
+            for i in range(n_leapfrog):
+                theta_prop += epsilon * p_prop
+                grad_U = grad_energy(theta_prop)
+                if i != n_leapfrog - 1:
+                    p_prop -= epsilon * grad_U
+            p_prop -= 0.5 * epsilon * grad_U
+            
+            current_U = energy(current_theta)
+            prop_U = energy(theta_prop)
+            
+            current_K = 0.5 * np.sum(current_p**2)
+            prop_K = 0.5 * np.sum(p_prop**2)
+            
+            # log acceptance probability
+            log_accept = current_U - prop_U + current_K - prop_K
+            accept_prob = np.exp(log_accept) if log_accept < 0 else 1.0
+            if np.isnan(accept_prob):
+                accept_prob = 0.0
+                
+            if rng.uniform() < accept_prob:
+                theta = theta_prop
+                
+            # Adapt step size
+            step = 1.0 / np.sqrt(t + 1)
+            epsilon = epsilon * np.exp(step * (accept_prob - target_accept))
+            epsilon = np.clip(epsilon, 1e-4, 0.5)
+
+        # Sampling phase
+        samples = []
+        for _ in range(n_samples):
+            p = rng.normal(0, 1, self.n_params)
+            current_p = p.copy()
+            current_theta = theta.copy()
+            
+            theta_prop = theta.copy()
+            p_prop = p.copy()
+            
+            grad_U = grad_energy(theta_prop)
+            p_prop -= 0.5 * epsilon * grad_U
+            for i in range(n_leapfrog):
+                theta_prop += epsilon * p_prop
+                grad_U = grad_energy(theta_prop)
+                if i != n_leapfrog - 1:
+                    p_prop -= epsilon * grad_U
+            p_prop -= 0.5 * epsilon * grad_U
+            
+            current_U = energy(current_theta)
+            prop_U = energy(theta_prop)
+            
+            current_K = 0.5 * np.sum(current_p**2)
+            prop_K = 0.5 * np.sum(p_prop**2)
+            
+            log_accept = current_U - prop_U + current_K - prop_K
+            accept_prob = np.exp(log_accept) if log_accept < 0 else 1.0
+            
+            if not np.isnan(accept_prob) and rng.uniform() < accept_prob:
+                theta = theta_prop
+                
+            samples.append(np.exp(theta.copy()))
+            
+        return np.array(samples)
+
     def run_mh_sampler(self, model='LIN', n_samples=2000, tune_steps=500, target_accept=0.3):
         """
         Metropolis-Hastings sampling with a log-normal proposal.
@@ -442,7 +557,90 @@ class PreferenceSampler:
             
         return mi
 
-    # ------------------------------------------------------------------
+    def _get_log_posterior_lin_vectorized(self, samples):
+        """
+        Calculates unnormalized log-posterior for a batch of samples (S, D).
+        """
+        # 1. Log-Likelihood
+        # X_diff: (N_prefs, D), samples: (S, D)
+        # utility_diff: (N_prefs, S)
+        utility_diff = self.X_diff @ samples.T
+        probs = 0.5 * (1.0 + utility_diff)
+        
+        # Handle boundaries
+        probs = np.clip(probs, 1e-12, 1.0 - 1e-12)
+        log_ll = np.sum(np.log(probs), axis=0) # (S,)
+        
+        # 2. Log-Prior (Dirichlet-like regularization used in FTRL-LIN)
+        # reg = lambda * sum(log(w))
+        log_prior = self.lambda_dirichlet_ftrl_lin * np.sum(np.log(samples + 1e-12), axis=1) # (S,)
+        
+        return log_ll + log_prior
+
+    def _calculate_mi_weighted(self, candidates, samples, weights, model_type):
+        """
+        Calculates BALD MI scores using weighted samples (Importance Sampling).
+        """
+        # weights: (S,), normalized to sum to 1
+        idx_a = [c[0] for c in candidates]
+        idx_b = [c[1] for c in candidates]
+        vec_diff = self.X[idx_a] - self.X[idx_b]
+        
+        # probs: (N_cand, S)
+        if model_type == 'BT':
+            u_diff = vec_diff @ samples.T
+            probs = robust_sigmoid(u_diff)
+        else:
+            u_diff = vec_diff @ samples.T
+            probs = 0.5 * (1 + u_diff)
+            
+        probs = np.clip(probs, 1e-9, 1-1e-9)
+        
+        # 1. H(Mean(P))
+        # p_mean: (N_cand,)
+        p_mean = np.sum(probs * weights, axis=1)
+        H_marginal = - (p_mean * np.log(p_mean) + (1-p_mean) * np.log(1-p_mean))
+        
+        # 2. Mean(H(P))
+        entropy_samples = - (probs * np.log(probs) + (1-probs) * np.log(1-probs))
+        E_H_conditional = np.sum(entropy_samples * weights, axis=1)
+        
+        return H_marginal - E_H_conditional
+
+    def bald_mi_importance_sampling(self, candidates, model_type, n_samples=5000, omega_map=None, Sigma=None):
+        """
+        Calculates BALD MI using Importance Sampling from a flat Dirichlet distribution.
+        Falls back to Taylor approximation if ESS is too low (< 5%).
+        """
+        rng = np.random.default_rng()
+        
+        # 1. Draw samples from flat Dirichlet (alpha=1)
+        samples = rng.dirichlet(np.ones(self.n_params), size=n_samples)
+        
+        # 2. Calculate unnormalized log-posterior and weights
+        log_post = self._get_log_posterior_lin_vectorized(samples)
+        
+        # Normalize weights safely
+        max_log = np.max(log_post)
+        weights = np.exp(log_post - max_log)
+        sum_w = np.sum(weights)
+        
+        if sum_w < 1e-20:
+            print("Warning: All IS weights are zero. Falling back to Taylor.")
+            return self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+            
+        weights /= sum_w
+        
+        # 3. Calculate ESS
+        ess = 1.0 / np.sum(weights**2)
+        ess_percent = (ess / n_samples) * 100
+        
+        if ess_percent < 5.0:
+            #print(f"ESS too low ({ess_percent:.1f}%), falling back to Taylor.")
+            return self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
+            
+        # 4. Calculate MI
+        return self._calculate_mi_weighted(candidates, samples, weights, model_type)
     # 4. Active Learning Logic (Unified)
     # ------------------------------------------------------------------
 
@@ -504,7 +702,7 @@ class PreferenceSampler:
                 return H_marginal
 
 
-    def get_candidate_scores(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False):
+    def get_candidate_scores(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False):
         """
         Determines the candidates and their scores using the PROVIDED current_state.
         """
@@ -531,10 +729,14 @@ class PreferenceSampler:
                 samples = np.atleast_2d(current_state)
                 scores = self._calculate_scores(candidates, samples, model_type, active_method)
             elif active_method in ['BALD', 'BALD+US']: 
-                # BALD: Need Laplace Sampling
+                # BALD: Need Laplace Sampling or IS
                 omega_map = current_state
                 Sigma = self.compute_laplace_covariance(omega_map, alg=full_alg_name)
-                if use_linear_approx:
+                
+                if use_is_bald and model_type == 'LIN':
+                    # Use Importance Sampling for FTRL-LIN
+                    scores = self.bald_mi_importance_sampling(candidates, model_type, n_samples=5000, omega_map=omega_map, Sigma=Sigma)
+                elif use_linear_approx:
                     scores = self.bald_mi_linear_appr(omega_map, Sigma, candidates, model_type)
                 else:
                     samples = self.sample_laplace(omega_map, Sigma, alg=full_alg_name, n_samples=n_samples_mc)
@@ -544,11 +746,247 @@ class PreferenceSampler:
         
         return candidates, scores
 
-    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False):
+
+    # ------------------------------------------------------------------
+    # 5. Tripartite Error Diagnostics
+    # ------------------------------------------------------------------
+
+    def _eval_neg_log_posterior(self, z, alg):
+        """
+        Evaluates the negative log-posterior F(z) = - (LL(z) + Prior(z)).
+        For FTRL-LIN, z is the ALR-transformed unconstrained parameter (N-1).
+        For FTRL-BT, z is the unconstrained parameter (N).
+        """
+        if alg == 'FTRL-LIN':
+            # Map z (ALR) to omega (Simplex)
+            z_with_zero = np.append(z, 0.0)
+            max_z = np.max(z_with_zero)
+            exp_z = np.exp(z_with_zero - max_z)
+            omega = exp_z / np.sum(exp_z)
+            omega = np.clip(omega, 1e-12, 1.0)
+            omega /= np.sum(omega)
+            
+            # Neg LL
+            u_diff = self.X_diff @ omega
+            probs = 0.5 * (1.0 + u_diff)
+            probs = np.clip(probs, 1e-12, 1.0 - 1e-12)
+            ll = np.sum(np.log(probs))
+            
+            # Neg Prior
+            prior = self.lambda_dirichlet_ftrl_lin * np.sum(np.log(omega))
+            return -(ll + prior)
+            
+        elif alg == 'FTRL-BT':
+            omega = np.clip(z, 1e-12, None)
+            
+            # Neg LL
+            u_diff = self.X_diff @ omega
+            ll = np.sum(-np.logaddexp(0, -u_diff))
+            
+            # Neg Prior (Gamma)
+            prior = np.sum((self.gamma_alpha_ftrl_bt - 1) * np.log(omega) - self.gamma_beta_ftrl_bt * omega)
+            return -(ll + prior)
+            
+        return 0.0
+
+    def calculate_estimation_error_diagnostic(self, omega_map, Sigma, candidates, alg):
+        """
+        Calculates the FTRL estimation error diagnostic based on cubic distortion.
+        Returns a dictionary with epsilon_t and diagnostics for each candidate.
+        """
+        try:
+            L_bar = np.linalg.cholesky(Sigma)
+        except np.linalg.LinAlgError:
+            # If not positive definite, no valid local geometry
+            return {'epsilon_t': 1.0, 'cand_errors': {c: np.inf for c in candidates}}
+            
+        if alg == 'FTRL-LIN':
+            z_hat = np.log(omega_map[:-1]) - np.log(omega_map[-1])
+        else:
+            z_hat = omega_map.copy()
+
+        results = {'cand_errors': {}}
+        
+        if alg == 'FTRL-BT':
+            # Compute analytic third directional derivative of the full objective
+            dim = len(z_hat)
+            D_j = np.zeros(dim)
+            alpha = self.gamma_alpha_ftrl_bt
+            probs = expit(self.X_diff @ omega_map)
+            
+            for j in range(dim):
+                v_j = L_bar[:, j]
+                
+                if self.X_diff.size > 0:
+                    x_v = self.X_diff @ v_j
+                    term1 = np.sum(probs * (1.0 - probs) * (1.0 - 2.0 * probs) * (x_v ** 3))
+                else:
+                    term1 = 0.0
+                    
+                term2 = - 2.0 * (alpha - 1.0) * np.sum((v_j / omega_map) ** 3)
+                D_j[j] = term1 + term2
+                
+            epsilon_t = (1.0 / 3.0) * np.max(np.abs(D_j))
+            j_star = int(np.argmax(np.abs(D_j)))
+            
+            # Record extra outputs from todo.tex
+            results['D_j'] = D_j
+            results['j_star'] = j_star
+            results['hessian_cond'] = np.linalg.cond(Sigma) # Cond of Sigma = Cond of H
+            results['clipping_used'] = False
+            results['bt_scaling'] = 'sum'
+            
+        else: # FTRL-LIN
+            dim = len(z_hat)
+            D_j = np.zeros(dim)
+            h = 0.5
+            
+            for j in range(dim):
+                v_j = L_bar[:, j]
+                
+                # Function along direction v_j
+                def phi(s): return self._eval_neg_log_posterior(z_hat + s * v_j, alg)
+                
+                # Third derivative via finite differences
+                T_vvv = (phi(2*h) - 2*phi(h) + 2*phi(-h) - phi(-2*h)) / (2 * h**3)
+                D_j[j] = T_vvv
+                
+            epsilon_t = (1.0 / 3.0) * np.max(np.abs(D_j))
+            j_star = int(np.argmax(np.abs(D_j)))
+            
+            # Record extra outputs from todo.tex
+            results['D_j'] = D_j
+            results['j_star'] = j_star
+            results['hessian_cond'] = np.linalg.cond(Sigma)
+            results['clipping_used'] = False
+            results['lin_h'] = h
+
+        results['epsilon_t'] = epsilon_t
+        
+        # Now compute the per-candidate diagnostics
+        # We need the predictive variance of the response probability eta.
+        # But we only need to provide the score components: Delta_geom and Delta_Tay.
+        
+        for cand in candidates:
+            idx_a, idx_b = cand
+            vec_diff = self.X[idx_a] - self.X[idx_b]
+            
+            if alg == 'FTRL-LIN':
+                J = self._get_alr_jacobian(omega_map)
+                grad_w = 0.5 * vec_diff
+                grad_z = J.T @ grad_w
+                var_eta = np.einsum('i,ij,j->', grad_z, Sigma, grad_z)
+                t = vec_diff @ omega_map
+                eta = 0.5 * (1.0 + t)
+            else:
+                t = vec_diff @ omega_map
+                eta = expit(t)
+                grad_w = vec_diff * eta * (1 - eta)
+                var_eta = np.einsum('i,ij,j->', grad_w, Sigma, grad_w)
+                
+            eta = np.clip(eta, 1e-9, 1-1e-9)
+            
+            # Base analytic score
+            B_LT = 0.5 * var_eta / (eta * (1 - eta)) if alg == 'FTRL-LIN' else 0.5 * var_eta / (eta * (1 - eta))
+            
+            if epsilon_t >= 1.0:
+                results['cand_errors'][cand] = np.inf
+            else:
+                Delta_geom = B_LT * (epsilon_t / (1 - epsilon_t))
+                var_eff = var_eta / (1 - epsilon_t)
+                Tay_coef = (1 - 3*eta + 3*eta**2) / (4 * eta**3 * (1 - eta)**3)
+                Delta_Tay = Tay_coef * (var_eff**2)
+                results['cand_errors'][cand] = abs(Delta_geom) + abs(Delta_Tay)
+                
+        return results
+
+
+
+    def calculate_bayes_estimation_error(self, candidates, samples, model_type, active_method, alpha=0.05):
+        """
+        Calculates the near-optimal-set diagnostic for BAYES models.
+        """
+        S = len(samples)
+        # Number of batch-means batches for the MCSE of the acquisition gap.
+        # Target ~20 batches, but keep a floor of 10 so the batch standard deviation
+        # (ddof=1) is itself stable, and never allow fewer than 2 samples per batch.
+        B = min(20, max(10, S // 100))
+        B = min(B, S // 2)
+        Q_t_size = len(candidates)
+
+        # BALD+US is not a single fixed acquisition function: _calculate_scores picks
+        # BALD or US per call from the sign of corr(H_marginal, MI), so across batches it
+        # can flip. The resulting gap MCSE - and hence the saved estimation-error quantities
+        # (|C_t|, rho_t, Delta_MC=E_size, mcse=E_sep) - are not meaningful for BALD+US.
+        if active_method == 'BALD+US' and not getattr(PreferenceSampler, '_bald_us_esterr_warned', False):
+            import warnings
+            warnings.warn(
+                "E_est (BAYES) with active_method='BALD+US': the acquisition type can flip "
+                "between batches, so the saved columns E_size (Delta_MC) and E_sep (mcse), "
+                "and the derived |C_t|/rho_t, are NOT reliable for BALD+US runs.",
+                RuntimeWarning, stacklevel=2,
+            )
+            PreferenceSampler._bald_us_esterr_warned = True
+
+        if B < 2 or Q_t_size <= 1:
+            return {
+                '|C_t|': Q_t_size, 'rho_t': 1.0,
+                'Delta_MC': 0.0, 'c_t': 0.0, 'B': B, 'S': S, 'rho_t_1': True,
+                'mcse_median': 0.0, 'mcse_max': 0.0
+            }
+            
+        batch_size = S // B
+        
+        # Overall scores
+        A_hat = self._calculate_scores(candidates, samples, model_type, active_method)
+        q_star_idx = int(np.argmax(A_hat))
+        
+        G_hat = A_hat[q_star_idx] - A_hat
+        
+        batch_gaps = np.zeros((B, Q_t_size))
+        
+        for b in range(B):
+            batch_samples = samples[b*batch_size : (b+1)*batch_size]
+            b_scores = self._calculate_scores(candidates, batch_samples, model_type, active_method)
+            b_score_q_star = b_scores[q_star_idx]
+            batch_gaps[b, :] = b_score_q_star - b_scores
+            
+        mcse_G = np.std(batch_gaps, axis=0, ddof=1) / np.sqrt(B)
+        
+        # Fixed ~2-sigma confidence multiplier (decision: constant c_t = 2, not the
+        # per-step multiple-comparison z_{1-alpha/(M_t-1)} nor a time-uniform schedule).
+        c_t = 2.0
+        
+        delta_MC = c_t * mcse_G
+        
+        C_t_mask = G_hat <= delta_MC
+        
+        C_t_size = np.sum(C_t_mask)
+        rho_t = C_t_size / Q_t_size
+        
+        if C_t_size > 0:
+            Delta_MC = np.max(G_hat[C_t_mask])
+        else:
+            Delta_MC = 0.0
+            
+        return {
+            '|C_t|': int(C_t_size),
+            'rho_t': float(rho_t),
+            'Delta_MC': float(Delta_MC),
+            'c_t': float(c_t),
+            'B': B,
+            'S': S,
+            'rho_t_1': bool(rho_t == 1.0),
+            'mcse_median': float(np.median(mcse_G)),
+            'mcse_max': float(np.max(mcse_G))
+        }
+
+
+    def suggest_next_pair(self, all_indices, alg, active_method, current_state, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False):
         """
         Determines the next best pair using the PROVIDED current_state.
         """
-        candidates, scores = self.get_candidate_scores(all_indices, alg, active_method, current_state, n_samples_mc, use_linear_approx)
+        candidates, scores = self.get_candidate_scores(all_indices, alg, active_method, current_state, n_samples_mc, use_linear_approx, use_is_bald)
         if not candidates: return None
         return candidates[np.argmax(scores)]
 

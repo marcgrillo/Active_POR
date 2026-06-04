@@ -16,3 +16,14 @@ __pycache__/
 # Ignore virtual environment
 env/
 venv/
+
+# Local diagnostics and results
+local_diagnostics/
+scratch/
+
+# Generated simulation outputs (run data, figures)
+*.npy
+*.png
+*.pdf
+results/
+output/

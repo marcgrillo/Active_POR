@@ -320,15 +320,15 @@ class DatasetGenerator:
 
 if __name__ == "__main__":
     # --- Configuration ---
-    DATASET_NAME = "20_dataset"  # Change this to group datasets (e.g., 'exp1', 'inconsistency_test')
+    DATASET_NAME = "30_dataset"  # Change this to group datasets (e.g., 'exp1', 'inconsistency_test')
     OUTPUT_DIR = os.path.join("datasets", DATASET_NAME)
-    N_RUNS = 30
+    N_RUNS = 200
     
     F1_LIST = [30]
     F2_LIST = [4]
     F3_LIST = [100]
     
-    TARGET_INCONSISTENCY = 0.2
+    TARGET_INCONSISTENCY = 0.3
     UTILITY_TYPE = 'exponential'  # Options: 'exponential', 'piecewise_linear'
     PROB_MODEL = 'logit'          # Options: 'logit', 'linear'
     NUM_INTERVALS = 3             # Only for piecewise_linear
