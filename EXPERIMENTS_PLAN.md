@@ -98,13 +98,15 @@ FTRL-LIN, FTRL-BT, BAYES-LIN, BAYES-BT — all existing. Each runs every strateg
 
 ## 5. New code checklist
 
-- [ ] `inference/baselines.py`: feasible-polytope rep + `POLY`, `CHEB`, `RANKUNC`, `MAXREGRET` selectors.
-- [ ] Wire the 4 selectors into `get_candidate_scores` / `simulation.py` dispatch.
-- [ ] `experiments/aggregate.py`: AULC, $T_\gamma$, Saving$_\gamma$, $\Delta$AULC from the saved metric `.npy` curves.
+- [x] `inference/baselines.py`: `FeasiblePolytope` (hard constraints + UTA slack, margin δ=1e-3,
+      Chebyshev center, hit-and-run) + `RANKUNC`, `POLY`, `CHEB`, `MAXREGRET` selectors.
+      `MAXREGRET` = max remaining utility swing over P (matches the draft's wording), estimated
+      from hit-and-run samples to avoid an O(m²) LP solve per step.
+- [x] Wire the 4 selectors into `get_candidate_scores` (dispatched via `baselines.BASELINE_METHODS`).
+- [x] `experiments/aggregate.py`: AULC, $T_\gamma$, Saving$_\gamma$, $\Delta$AULC + booktabs LaTeX.
+- [x] `compute_error_diagnostics` on/off flag in `simulation.py`/`runner.py`/`main.py`.
 - [ ] BALD−US-vs-error scatter script (extend `plot_diagnostics.py`).
 - [ ] Two stopping-criterion evaluators (post-hoc over saved acquisition scores / $C_t$).
-- [ ] Optional: a `compute_error_diagnostics` on/off flag in `simulation.py` so the bulk H1
-      runs can skip the expensive FTRL hypothetical refits (only the H2 grid needs them).
 
 ---
 

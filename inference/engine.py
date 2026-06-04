@@ -718,7 +718,14 @@ class PreferenceSampler:
         candidates = [p for p in possible_pairs if p not in seen and (p[1], p[0]) not in seen]
         
         if not candidates: return [], []
-        
+
+        # 2a. Literature baselines (selection-only rules) are dispatched separately.
+        from inference import baselines
+        if active_method in baselines.BASELINE_METHODS:
+            scores = baselines.score(self, candidates, active_method, full_alg_name,
+                                     current_state, n_samples_mc)
+            return candidates, scores
+
         # 2. Calculate Scores
         if algo_type == 'BAYES':
             samples = current_state
