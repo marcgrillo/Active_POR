@@ -26,6 +26,9 @@ import cvxpy as cp
 
 BASELINE_METHODS = {'RANKUNC', 'POLY', 'CHEB', 'MAXREGRET'}
 
+# Methods that require a posterior distribution — N/A for FTRL (MAP only, no posterior).
+_POSTERIOR_METHODS = {'RANKUNC'}
+
 
 # ---------------------------------------------------------------------------
 # Feasible weight polytope on the simplex, with UTA-style slack
@@ -261,8 +264,20 @@ def max_regret(sampler, candidates, polytope, n_samples=400):
 # Dispatcher
 # ---------------------------------------------------------------------------
 
+def is_applicable(active_method, alg):
+    """Return False when the method is N/A for the given algorithm type."""
+    algo_type = alg.split('-')[0]
+    return not (algo_type == 'FTRL' and active_method in _POSTERIOR_METHODS)
+
+
 def score(sampler, candidates, active_method, alg, current_state, n_samples):
-    """Return a score array (one per candidate) for the requested baseline."""
+    """Return a score array (one per candidate) for the requested baseline.
+    Raises ValueError if the method is N/A for the given algorithm."""
+    if not is_applicable(active_method, alg):
+        raise ValueError(
+            f"{active_method} is not applicable for {alg}: it requires a posterior "
+            f"distribution which {alg.split('-')[0]} does not provide."
+        )
     if active_method == 'RANKUNC':
         samples = _get_samples(sampler, alg, current_state, n_samples)
         return rank_uncertainty(sampler, candidates, samples)

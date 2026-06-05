@@ -722,6 +722,11 @@ class PreferenceSampler:
         # 2a. Literature baselines (selection-only rules) are dispatched separately.
         from inference import baselines
         if active_method in baselines.BASELINE_METHODS:
+            if not baselines.is_applicable(active_method, full_alg_name):
+                raise ValueError(
+                    f"active_method='{active_method}' is not applicable for alg='{full_alg_name}'. "
+                    f"Do not run this combination."
+                )
             scores = baselines.score(self, candidates, active_method, full_alg_name,
                                      current_state, n_samples_mc)
             return candidates, scores

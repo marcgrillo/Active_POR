@@ -98,12 +98,10 @@ def build_table(dataset_fold, strategies, f1, f2, f3, num_dm_dec,
     rand_tg_mean, _ = _mean_ci(rand_tg)
 
     rows = []
-    # Random row first
     rows.append(dict(
         strategy='Random', metric=metric,
         AULC=rand_aulc_mean, AULC_CI=_mean_ci(rand_aulc)[1],
-        dAULC=0.0,
-        T_gamma=rand_tg_mean, Saving=0.0,
+        dAULC=0.0, T_gamma=rand_tg_mean, Saving=0.0,
     ))
 
     for sf in strategies:
@@ -122,6 +120,69 @@ def build_table(dataset_fold, strategies, f1, f2, f3, num_dm_dec,
             AULC=a_mean, AULC_CI=a_ci,
             dAULC=a_mean - rand_aulc_mean,
             T_gamma=tg_mean, Saving=saving,
+        ))
+
+    return pd.DataFrame(rows)
+
+
+def build_table_multi(dataset_fold, strategies, configs, metric='asrs', gamma=0.8,
+                      random_sub_fold=None):
+    """
+    Average AULC, dAULC, T_gamma, Saving over multiple (f1, f2) configurations.
+
+    configs: list of (f1, f2, f3) tuples. Results for each strategy are pooled across
+    all configs (i.e. per-HM values from all configs are concatenated before averaging),
+    so the CI reflects both within-config and across-config variance.
+    """
+    # Collect per-HM values across all configs for each strategy (and Random)
+    rand_aulc_all, rand_tg_all = [], []
+    strat_aulc_all = {sf: [] for sf in strategies}
+    strat_tg_all   = {sf: [] for sf in strategies}
+
+    for f1, f2, f3 in configs:
+        ndm = int(round(f3 * f1 * (f1 - 1) / 200))
+
+        if random_sub_fold is not None:
+            rc = load_curve(metric, dataset_fold, random_sub_fold, f1, f2, f3, ndm, 'active')
+        else:
+            rc = load_curve(metric, dataset_fold, strategies[0], f1, f2, f3, ndm, 'passive')
+
+        if rc.size:
+            rand_aulc_all.extend(aulc_per_hm(rc).tolist())
+            rand_tg_all.extend(t_gamma_per_hm(rc, gamma).tolist())
+
+        for sf in strategies:
+            curve = load_curve(metric, dataset_fold, sf, f1, f2, f3, ndm, 'active')
+            if curve.size:
+                strat_aulc_all[sf].extend(aulc_per_hm(curve).tolist())
+                strat_tg_all[sf].extend(t_gamma_per_hm(curve, gamma).tolist())
+
+    rand_aulc_vec = np.array(rand_aulc_all)
+    rand_tg_vec   = np.array(rand_tg_all)
+    rand_aulc_mean, rand_aulc_ci = _mean_ci(rand_aulc_vec)
+    rand_tg_mean, _ = _mean_ci(rand_tg_vec)
+
+    rows = [dict(strategy='Random', metric=metric,
+                 AULC=rand_aulc_mean, AULC_CI=rand_aulc_ci,
+                 dAULC=0.0, T_gamma=rand_tg_mean, Saving=0.0,
+                 n_obs=len(rand_aulc_vec))]
+
+    for sf in strategies:
+        a_vec  = np.array(strat_aulc_all[sf])
+        tg_vec = np.array(strat_tg_all[sf])
+        if a_vec.size == 0:
+            rows.append(dict(strategy=sf, metric=metric, AULC=np.nan, AULC_CI=np.nan,
+                             dAULC=np.nan, T_gamma=np.nan, Saving=np.nan, n_obs=0))
+            continue
+        a_mean, a_ci = _mean_ci(a_vec)
+        tg_mean, _   = _mean_ci(tg_vec)
+        saving = (1 - tg_mean / rand_tg_mean) if (rand_tg_mean and not np.isnan(rand_tg_mean)) else np.nan
+        rows.append(dict(
+            strategy=sf, metric=metric,
+            AULC=a_mean, AULC_CI=a_ci,
+            dAULC=a_mean - rand_aulc_mean,
+            T_gamma=tg_mean, Saving=saving,
+            n_obs=len(a_vec),
         ))
 
     return pd.DataFrame(rows)
@@ -158,26 +219,39 @@ if __name__ == '__main__':
     import argparse
     p = argparse.ArgumentParser(description='Aggregate sample-efficiency metrics.')
     p.add_argument('--dataset', required=True)
-    p.add_argument('--f1', type=int, required=True)
-    p.add_argument('--f2', type=int, required=True)
+    p.add_argument('--f1', type=int, nargs='+', required=True,
+                   help='One or more f1 values. If multiple, results are averaged across configs.')
+    p.add_argument('--f2', type=int, nargs='+', required=True,
+                   help='One or more f2 values (paired with f1, or all combos if lengths differ).')
     p.add_argument('--f3', type=int, default=100)
     p.add_argument('--metric', default='asrs', choices=['asrs', 'asps', 'aios'])
     p.add_argument('--gamma', type=float, default=0.8)
     p.add_argument('--strategies', nargs='+', required=True,
                    help='sub_fold names, e.g. FTRL-BT_BALD FTRL-BT_US')
     p.add_argument('--random_sub_fold', default=None)
-    p.add_argument('--num_dm_dec', type=int, default=None,
-                   help='Number of steps. Defaults to round(f3*f1*(f1-1)/200).')
     p.add_argument('--latex', action='store_true', help='Also print a LaTeX table.')
     args = p.parse_args()
 
-    ndm = args.num_dm_dec or int(round(args.f3 * args.f1 * (args.f1 - 1) / 200))
-
-    df = build_table(args.dataset, args.strategies, args.f1, args.f2, args.f3, ndm,
-                     metric=args.metric, gamma=args.gamma,
-                     random_sub_fold=args.random_sub_fold)
     pd.set_option('display.float_format', lambda v: f'{v:.4f}')
+
+    # Build all (f1, f2) combos
+    configs = [(f1, f2, args.f3) for f1 in args.f1 for f2 in args.f2]
+
+    if len(configs) == 1:
+        f1, f2, f3 = configs[0]
+        ndm = int(round(f3 * f1 * (f1 - 1) / 200))
+        df = build_table(args.dataset, args.strategies, f1, f2, f3, ndm,
+                         metric=args.metric, gamma=args.gamma,
+                         random_sub_fold=args.random_sub_fold)
+        caption = f'{args.metric.upper()} (f1={f1}, f2={f2}, $\\gamma$={args.gamma})'
+    else:
+        df = build_table_multi(args.dataset, args.strategies, configs,
+                               metric=args.metric, gamma=args.gamma,
+                               random_sub_fold=args.random_sub_fold)
+        cfg_str = ', '.join(f'({f1},{f2})' for f1, f2, _ in configs)
+        caption = f'{args.metric.upper()} averaged over configs {cfg_str}, $\\gamma$={args.gamma}'
+        print(f'Averaging over {len(configs)} configs: {cfg_str}')
+
     print(df.to_string(index=False))
     if args.latex:
-        print('\n' + to_latex(df, caption=f'{args.metric.upper()} sample efficiency '
-                                          f'(f1={args.f1}, f2={args.f2}, $\\gamma$={args.gamma}).'))
+        print('\n' + to_latex(df, caption=caption))
