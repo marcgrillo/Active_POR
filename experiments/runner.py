@@ -8,7 +8,17 @@ from tqdm import tqdm
 from common import utils
 from experiments.simulation import process_single_table
 
-def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False, check_passive_algs_completed=False, use_mh_sampler=False, use_hmc_sampler=False, num_cores=1, n_samples_mcmc=2000, compute_error_diagnostics=True):
+
+def adaptive_n_samples(f1, f2, base=2000):
+    """
+    Scale MCMC sample count with problem complexity.
+    Rule: max(base, 500*f2, 200*f1) — driven by model dimension (f2*gamma)
+    and number of observed comparisons (grows with f1).
+    """
+    return max(base, 500 * f2, 200 * f1)
+
+
+def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False, check_passive_algs_completed=False, use_mh_sampler=False, use_hmc_sampler=False, num_cores=1, n_samples_mcmc=2000, compute_error_diagnostics=True, adaptive_mcmc=False):
     """
     Orchestrates the experiments across multiple datasets and configurations.
     
@@ -37,7 +47,8 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                 # Lookup Lambda
                 config_key = f"f1_{f1}_f2_{f2}"
                 current_lam = gen_params.get(config_key, np.inf)
-                print(f"Configuration: f1={f1}, f2={f2} | Using Lambda={current_lam:.4f}")
+                effective_n_mcmc = adaptive_n_samples(f1, f2) if adaptive_mcmc else n_samples_mcmc
+                print(f"Configuration: f1={f1}, f2={f2} | Lambda={current_lam:.4f} | n_samples_mcmc={effective_n_mcmc}")
                 
                 for f3 in F3:
                     try:
@@ -108,7 +119,7 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                             'shared_passive_dir': passive_method_dir,
                             'use_mh_sampler': use_mh_sampler,
                             'use_hmc_sampler': use_hmc_sampler,
-                            'n_samples_mcmc': n_samples_mcmc,
+                            'n_samples_mcmc': effective_n_mcmc,
                             'compute_error_diagnostics': compute_error_diagnostics
                         }
                         tasks.append(task_args)

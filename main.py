@@ -111,6 +111,10 @@ N_SAMPLES_MCMC = 2000
 #                (ASRS/ASPS/AIOS) are unaffected.
 COMPUTE_ERROR_DIAGNOSTICS = True
 
+# ADAPTIVE_MCMC: Scale n_samples_mcmc with problem complexity when True.
+# Rule: max(2000, 500*f2, 200*f1). Overrides N_SAMPLES_MCMC per config.
+ADAPTIVE_MCMC = False
+
 # ==============================================================================
 # 4. Execution Flow Flags
 # ==============================================================================
@@ -182,6 +186,7 @@ if __name__ == "__main__":
             num_cores=NUM_CORES,
             n_samples_mcmc=N_SAMPLES_MCMC,
             compute_error_diagnostics=COMPUTE_ERROR_DIAGNOSTICS,
+            adaptive_mcmc=ADAPTIVE_MCMC,
         )
         
     # 2. Calculate Metrics
