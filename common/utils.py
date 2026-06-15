@@ -188,8 +188,16 @@ def load_test_results(test_name: str, dataset_fold: str, sub_fold: str, num_dm_d
         
     if not loaded_data:
         return np.array([]), np.array([])
-        
-    return np.stack(loaded_data, axis=0), np.stack(loaded_data_active, axis=0)
+
+    # Pad to uniform length with NaN so steps with partial HMs don't break stacking
+    max_len = max(a.shape[0] for a in loaded_data)
+    def _pad(arrays):
+        out = np.full((len(arrays), max_len), np.nan)
+        for i, a in enumerate(arrays):
+            out[i, :a.shape[0]] = a
+        return out
+
+    return _pad(loaded_data), _pad(loaded_data_active)
 
 def parse_subfold_string(s):
     parts = s.split('_')

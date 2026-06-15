@@ -247,17 +247,24 @@ def chebyshev_selection(sampler, candidates, polytope):
 
 def max_regret(sampler, candidates, polytope, n_samples=400):
     """
-    Score_q = max_{w in P} |U_w(i) - U_w(j)|, the largest remaining utility difference of the
-    pair over the feasible polytope (its pairwise max regret). Maximising queries the pair with
-    the largest unresolved utility swing. Estimated from hit-and-run samples of P, which avoids
-    an O(m^2) LP solve per step.
+    Selects the most contested pair: the one where the feasible polytope P supports both
+    orderings with the largest minimum regret.
+
+    Score = min(max_{w in P}(U_i - U_j), max_{w in P}(U_j - U_i)), clamped to 0.
+
+    This is 0 for settled pairs (one alternative always dominates in P) and positive
+    only when both orderings are feasible — with higher scores for pairs that are
+    both contested and high-stakes. Estimated from hit-and-run samples of P.
     """
     W = polytope.sample(n=n_samples)                      # (S, d)
     U = sampler.X @ W.T                                   # (m, S) utilities per sample
     idx_a = [c[0] for c in candidates]
     idx_b = [c[1] for c in candidates]
     diff = U[idx_a] - U[idx_b]                            # (n_cand, S)
-    return np.max(np.abs(diff), axis=1)
+    max_ab = np.max(diff, axis=1)                         # max_{w in P} U_a - U_b
+    max_ba = np.max(-diff, axis=1)                        # max_{w in P} U_b - U_a
+    # Non-zero only when BOTH orderings are feasible in P
+    return np.minimum(np.maximum(max_ab, 0.0), np.maximum(max_ba, 0.0))
 
 
 # ---------------------------------------------------------------------------

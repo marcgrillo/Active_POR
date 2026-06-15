@@ -59,9 +59,16 @@ def process_single_table(
     disable_tqdm=False,
     progress_dict=None,
     n_samples_mcmc=2000,
-    compute_error_diagnostics=True):
+    compute_error_diagnostics=True,
+    acq_alg=None):
     """
     Runs the active learning simulation for a single Human Model (table).
+
+    `acq_alg` (optional) decouples the acquisition link from the inference link: inference
+    (the posterior) always uses `alg`, but candidate scoring uses `acq_alg` when provided.
+    E.g. alg='BAYES-LIN', acq_alg='BAYES-BT' = LIN posterior scored with the BT-link BALD,
+    used to test whether a misspecified link breaks BALD's query selection (acquisition)
+    rather than its posterior (inference).
     
     Workflow:
     1.  **Setup**: Initialize feature transformer and samplers (Passive & Active).
@@ -84,6 +91,8 @@ def process_single_table(
         num_steps (int): Number of active learning steps to run.
         ...
     """
+    acq_alg = acq_alg or alg          # acquisition link defaults to the inference link
+
     # 1. Setup
     transformer = PiecewiseLinearTransformer.from_equal_intervals(table, num_intervals=3)
     feature_matrix = transformer.transform(table)
@@ -154,7 +163,7 @@ def process_single_table(
     all_indices = np.arange(len(table))
 
     for j in tqdm(range(1, num_steps + 1), desc=f"  Table {table_index}", leave=False, disable=disable_tqdm):
-        if progress_dict is not None:
+        if progress_dict is not None and j % 10 == 0:
             progress_dict[table_index] = j
         # Determine paths
         if check_passive_algs_completed and shared_table_dir:
@@ -227,7 +236,7 @@ def process_single_table(
 
             else:
                 candidates, scores = sampler_active.get_candidate_scores(
-                    all_indices, alg, active_method, w_active, n_samples_mc, use_linear_approx, use_is_bald
+                    all_indices, acq_alg, active_method, w_active, n_samples_mc, use_linear_approx, use_is_bald
                 )
                 if active_method == 'BALD':
                     mean_mi = np.mean(scores) if candidates else 0.0
@@ -449,10 +458,33 @@ def process_single_table(
                 if alg in ['FTRL-LIN', 'FTRL-BT']:
                     Sigma_prev = step_diag_info.get('Sigma_prev', None)
                     if Sigma_prev is not None:
-                        est_diag = sampler_active.calculate_estimation_error_diagnostic(w_active, Sigma_prev, [suggested_pair], alg)
+                        # Per-candidate reliability radius for the acquisition actually maximized.
+                        est_diag = sampler_active.calculate_estimation_error_diagnostic(
+                            w_active, Sigma_prev, candidates, alg, active_method)
                         epsilon_t = est_diag['epsilon_t']
-                        E_est_FTLT = est_diag['cand_errors'].get(tuple(suggested_pair), np.inf)
-                        
+                        radii = est_diag['cand_errors']
+                        cand_scores = est_diag.get('cand_scores', {})
+                        E_est_FTLT = radii.get(tuple(suggested_pair), np.inf)
+
+                        # Unresolved-query fraction rho_t = |C_t| / |P_t|, with
+                        # C_t = { q : delta_t(q) <= r(q*) + r(q) } and
+                        # delta_t(q) = A_hat(q*) - A_hat(q). The gap uses the SAME
+                        # analytic acquisition score the radius is built for (LT-BALD
+                        # MI / plug-in MAP entropy), not the MC/IS score used for
+                        # selection, so gap and radius share one scale.
+                        if cand_scores and len(candidates) > 0:
+                            acq = np.array([cand_scores.get(tuple(c), 0.0) for c in candidates], dtype=float)
+                            q_star = int(np.argmax(acq))
+                            gap = acq[q_star] - acq
+                            r_star = radii.get(tuple(candidates[q_star]), np.inf)
+                            n_unres = 0
+                            for ci, cand in enumerate(candidates):
+                                thr = r_star + radii.get(tuple(cand), np.inf)
+                                if np.isinf(thr) or gap[ci] <= thr:
+                                    n_unres += 1
+                            C_t_size = int(n_unres)
+                            rho_t = C_t_size / len(candidates)
+
                         j_star = est_diag.get('j_star', '')
                         hessian_cond = est_diag.get('hessian_cond', '')
                         clipping_used = est_diag.get('clipping_used', '')

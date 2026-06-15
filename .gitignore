@@ -27,3 +27,10 @@ scratch/
 *.pdf
 results/
 output/
+
+# Never push LaTeX paper sources/drafts, run logs, or local tool config
+tex/
+logs/
+*.tex
+*.log
+.claude/

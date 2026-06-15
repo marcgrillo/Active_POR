@@ -20,6 +20,9 @@ F2 = [2, 6, 10]
 F3 = [100]
 DATASETS = {'consistent': 'exp_dataset', 'inconsistent': 'exp_dataset_inc'}
 
+# f1=50 excluded from BAYES: 10000 adaptive MCMC samples × 1225 steps × 20 HMs is infeasible
+F1_BAYES = [10, 30]
+
 FTRL_STRATEGIES = ['BALD', 'US', 'POLY', 'CHEB', 'MAXREGRET']
 BAYES_STRATEGIES = ['BALD', 'US', 'RANKUNC', 'POLY', 'CHEB', 'MAXREGRET']
 
@@ -56,7 +59,7 @@ def run_bayes(num_cores=16):
             sf = f'{alg}_{method}'
             print(f'\n[BAYES] {cond} | {sf}')
             run_batch_experiments(
-                F1=F1, F2=F2, F3=F3,
+                F1=F1_BAYES, F2=F2, F3=F3,
                 sub_fold=sf, dataset_folds=[ds],
                 alg=alg, active_method=method,
                 overwrite=OVERWRITE, hm=HM_BAYES,
@@ -70,15 +73,14 @@ def run_bayes(num_cores=16):
 
 
 def run_metrics():
-    all_strats = (
-        [(f'FTRL-BT_{m}', HM_FTRL)  for m in FTRL_STRATEGIES] +
-        [(f'BAYES-BT_{m}', HM_BAYES) for m in BAYES_STRATEGIES]
-    )
+    ftrl_strats  = [(f'FTRL-BT_{m}',  HM_FTRL,  F1)       for m in FTRL_STRATEGIES]
+    bayes_strats = [(f'BAYES-BT_{m}', HM_BAYES, F1_BAYES)  for m in BAYES_STRATEGIES]
     for cond, ds in DATASETS.items():
-        for f1 in F1:
-            for f2 in F2:
-                ndm = int(round(100 * f1 * (f1 - 1) / 200))
-                for sf, hm in all_strats:
+        for sf, hm, f1_list in ftrl_strats + bayes_strats:
+            for f1 in f1_list:
+                for f2 in F2:
+                    ndm = int(round(100 * f1 * (f1 - 1) / 200))
+                    # (inner loop body unchanged, just dedented)
                     print(f'Metrics: {ds} f1={f1} f2={f2} {sf}')
                     try:
                         r = BenchmarkRunner(
@@ -95,24 +97,25 @@ def run_aggregate():
     from experiments.aggregate import build_table_multi, to_latex
     import pandas as pd
 
-    configs = [(f1, f2, 100) for f1 in F1 for f2 in F2]
+    ftrl_configs  = [(f1, f2, 100) for f1 in F1       for f2 in F2]
+    bayes_configs = [(f1, f2, 100) for f1 in F1_BAYES for f2 in F2]
     pd.set_option('display.float_format', lambda v: f'{v:.4f}')
 
     for cond, ds in DATASETS.items():
         print(f'\n{"="*60}')
-        print(f'FTRL-BT | {cond.upper()} | averaged over {len(configs)} configs | gamma={GAMMA}')
+        print(f'FTRL-BT | {cond.upper()} | {len(ftrl_configs)} configs | gamma={GAMMA}')
         print('='*60)
         strats = [f'FTRL-BT_{m}' for m in FTRL_STRATEGIES]
-        df = build_table_multi(ds, strats, configs, metric='asrs', gamma=GAMMA)
+        df = build_table_multi(ds, strats, ftrl_configs, metric='asrs', gamma=GAMMA)
         print(df.to_string(index=False))
         print(to_latex(df, caption=f'FTRL-BT ASRS — {cond}, $\\gamma$={GAMMA}',
                        label=f'tab:ftrl_{cond}'))
 
         print(f'\n{"="*60}')
-        print(f'BAYES-BT | {cond.upper()} | averaged over {len(configs)} configs | gamma={GAMMA}')
+        print(f'BAYES-BT | {cond.upper()} | {len(bayes_configs)} configs | gamma={GAMMA}')
         print('='*60)
         strats = [f'BAYES-BT_{m}' for m in BAYES_STRATEGIES]
-        df = build_table_multi(ds, strats, configs, metric='asrs', gamma=GAMMA)
+        df = build_table_multi(ds, strats, bayes_configs, metric='asrs', gamma=GAMMA)
         print(df.to_string(index=False))
         print(to_latex(df, caption=f'BAYES-BT ASRS — {cond}, $\\gamma$={GAMMA}',
                        label=f'tab:bayes_{cond}'))

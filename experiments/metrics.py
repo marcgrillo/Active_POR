@@ -226,7 +226,7 @@ class BenchmarkRunner:
                                 res_std.append(rai[best_idx, 0])
                                 res_act.append(rai_act[best_idx, 0])
                             except (FileNotFoundError, IndexError):
-                                break
+                                continue
                         
                         np.save(p_std, res_std)
                         np.save(p_act, res_act)
@@ -318,7 +318,7 @@ class BenchmarkRunner:
                                 res_std.append(val_std)
                                 res_act.append(val_act)
                             except (FileNotFoundError, IndexError):
-                                break
+                                continue
                         
                         np.save(p_std, res_std)
                         np.save(p_act, res_act)

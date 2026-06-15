@@ -1,5 +1,6 @@
 import os
 import json
+import multiprocessing
 import numpy as np
 import time
 from multiprocessing import Manager
@@ -18,7 +19,7 @@ def adaptive_n_samples(f1, f2, base=2000):
     return max(base, 500 * f2, 200 * f1)
 
 
-def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False, check_passive_algs_completed=False, use_mh_sampler=False, use_hmc_sampler=False, num_cores=1, n_samples_mcmc=2000, compute_error_diagnostics=True, adaptive_mcmc=False):
+def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_method, overwrite, hm=None, calculate_heuristic=False, generate_scatter_plots=False, mape_threshold=0.05, plot_mape_fit=False, n_samples_mc=2000, use_linear_approx=False, use_is_bald=False, check_passive_algs_completed=False, use_mh_sampler=False, use_hmc_sampler=False, num_cores=1, n_samples_mcmc=2000, compute_error_diagnostics=True, adaptive_mcmc=False, acq_alg=None, max_steps=None):
     """
     Orchestrates the experiments across multiple datasets and configurations.
     
@@ -59,6 +60,8 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                         continue
                         
                     num_dm_dec = int(np.round(f3 * (f1 * (f1 - 1) / 200)))
+                    if max_steps is not None:
+                        num_dm_dec = min(num_dm_dec, int(max_steps))
                     
                     config_dir = os.path.join(samples_root, f"f1_{f1}_f2_{f2}_f3_{f3}")
                     method_dir = os.path.join(config_dir, sub_fold)
@@ -120,14 +123,25 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                             'use_mh_sampler': use_mh_sampler,
                             'use_hmc_sampler': use_hmc_sampler,
                             'n_samples_mcmc': effective_n_mcmc,
-                            'compute_error_diagnostics': compute_error_diagnostics
+                            'compute_error_diagnostics': compute_error_diagnostics,
+                            'acq_alg': acq_alg
                         }
                         tasks.append(task_args)
 
                     # Execute Tasks
                     if num_cores > 1 and len(tasks) > 1:
                         print(f"Running {len(tasks)} tables in parallel using {num_cores} cores...")
-                        
+
+                        # Cap BLAS threads per worker so num_cores workers each get
+                        # total_cores / num_cores threads, avoiding contention where
+                        # every worker tries to use all cores simultaneously.
+                        total_cores = multiprocessing.cpu_count()
+                        blas_threads = max(1, total_cores // num_cores)
+                        for var in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+                                    'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS',
+                                    'NUMEXPR_NUM_THREADS'):
+                            os.environ[var] = str(blas_threads)
+
                         with Manager() as manager:
                             # Global dictionary to track progress of each table
                             progress_dict = manager.dict({task['table_index']: 0 for task in tasks})
@@ -179,4 +193,4 @@ def run_batch_experiments(F1, F2, F3, sub_fold, dataset_folds, alg, active_metho
                     else:
                         # Sequential execution - keep inner tqdm bars enabled
                         for task in tasks:
-                            process_single_table(**task)
+                            process_single_table(**task)

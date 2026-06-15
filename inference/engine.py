@@ -801,23 +801,50 @@ class PreferenceSampler:
             
         return 0.0
 
-    def calculate_estimation_error_diagnostic(self, omega_map, Sigma, candidates, alg):
+    def calculate_estimation_error_diagnostic(self, omega_map, Sigma, candidates, alg, active_method='BALD'):
         """
         Calculates the FTRL estimation error diagnostic based on cubic distortion.
-        Returns a dictionary with epsilon_t and diagnostics for each candidate.
+
+        Returns a dict with the relative cubic distortion ``epsilon_t`` (global) and
+        a per-candidate reliability radius in ``cand_errors`` (candidate tuple -> radius).
+        The radius depends on the acquisition being maximized:
+
+          - BALD (``active_method='BALD'``): the Laplace-Taylor radius
+            r_B^LT(q) = r_geom + r_fun, with
+            r_geom = B_LT(q) * eps/(1-eps)                      (Eq. LT_geometry_sensitivity)
+            r_fun  = (1-3eta+3eta^2)/(4 eta^3 (1-eta)^3) * (var_eta/(1-eps))^2
+                                                                (Eq. taylor_truncation_error_effective)
+          - US (``active_method='US'``): the plug-in MAP entropy radius
+            r_H^MAP(q) = r_geom + r_plug, with
+            r_geom = | h(p_eff^Lap) - h(p^Lap) |                (Eq. us_geometry_radius)
+            r_plug = | h(p^Lap)     - h(p^MAP) |                (Eq. us_plugin_radius)
+            where p^Lap = eta + 0.5 tr(G_q Sigma), p_eff^Lap uses Sigma/(1-eps),
+            p^MAP = eta. For the Linear link G_q = 0, so both US terms vanish.
+
+        Also returns ``cand_scores`` (candidate tuple -> analytic acquisition score
+        A_hat(q) used to build the radius: LT-BALD MI for BALD, plug-in MAP entropy
+        for US). The caller must form the gaps delta(q) = A_hat(q*) - A_hat(q) from
+        these SAME analytic scores (not the MC/IS acquisition used for selection), so
+        gap and radius live on a common scale. The unresolved set is then
+        C = {q : delta(q) <= r(q*) + r(q)} and the estimation error
+        rho_t = |C| / |P_t| (Eqs. est_equivalence_set_generic,
+        est_unresolved_fraction_generic), reported on the same scale as the BAYES
+        diagnostic ``calculate_bayes_estimation_error``.
         """
         try:
             L_bar = np.linalg.cholesky(Sigma)
         except np.linalg.LinAlgError:
             # If not positive definite, no valid local geometry
-            return {'epsilon_t': 1.0, 'cand_errors': {c: np.inf for c in candidates}}
-            
+            return {'epsilon_t': 1.0,
+                    'cand_errors': {c: np.inf for c in candidates},
+                    'cand_scores': {c: 0.0 for c in candidates}}
+
         if alg == 'FTRL-LIN':
             z_hat = np.log(omega_map[:-1]) - np.log(omega_map[-1])
         else:
             z_hat = omega_map.copy()
 
-        results = {'cand_errors': {}}
+        results = {'cand_errors': {}, 'cand_scores': {}}
         
         if alg == 'FTRL-BT':
             # Compute analytic third directional derivative of the full objective
@@ -874,42 +901,80 @@ class PreferenceSampler:
             results['lin_h'] = h
 
         results['epsilon_t'] = epsilon_t
-        
-        # Now compute the per-candidate diagnostics
-        # We need the predictive variance of the response probability eta.
-        # But we only need to provide the score components: Delta_geom and Delta_Tay.
-        
+
+        # Per-candidate reliability radius r(q). The acquisition gaps and the
+        # unresolved-set assembly (rho_t) are done by the caller from the actual
+        # acquisition scores; here we only supply the resolution radius per query.
+        def _h(p):
+            p = np.clip(p, 1e-12, 1.0 - 1e-12)
+            return -(p * np.log(p) + (1.0 - p) * np.log(1.0 - p))
+
+        # Precompute the ALR Jacobian once for the Linear link (omega_map is fixed).
+        J = self._get_alr_jacobian(omega_map) if alg == 'FTRL-LIN' else None
+
         for cand in candidates:
             idx_a, idx_b = cand
             vec_diff = self.X[idx_a] - self.X[idx_b]
-            
+
             if alg == 'FTRL-LIN':
-                J = self._get_alr_jacobian(omega_map)
                 grad_w = 0.5 * vec_diff
                 grad_z = J.T @ grad_w
                 var_eta = np.einsum('i,ij,j->', grad_z, Sigma, grad_z)
                 t = vec_diff @ omega_map
                 eta = 0.5 * (1.0 + t)
+                # G_q = 0 for the linear link: the predictive-probability curvature
+                # correction tr(G_q Sigma) vanishes (draft, Sec. US under opt. inference).
+                c_q = 0.0
             else:
                 t = vec_diff @ omega_map
                 eta = expit(t)
                 grad_w = vec_diff * eta * (1 - eta)
                 var_eta = np.einsum('i,ij,j->', grad_w, Sigma, grad_w)
-                
-            eta = np.clip(eta, 1e-9, 1-1e-9)
-            
-            # Base analytic score
-            B_LT = 0.5 * var_eta / (eta * (1 - eta)) if alg == 'FTRL-LIN' else 0.5 * var_eta / (eta * (1 - eta))
-            
-            if epsilon_t >= 1.0:
-                results['cand_errors'][cand] = np.inf
+                # Curvature correction tr(G_q Sigma) for the BT link:
+                # G_q = sigma''(t) x x^T = eta(1-eta)(1-2eta) x x^T.
+                var_t = np.einsum('i,ij,j->', vec_diff, Sigma, vec_diff)
+                c_q = eta * (1.0 - eta) * (1.0 - 2.0 * eta) * var_t
+
+            eta_c = np.clip(eta, 1e-9, 1 - 1e-9)
+
+            # Analytic acquisition score A_hat(q) the radius is built for.
+            B_LT = 0.5 * var_eta / (eta_c * (1 - eta_c))   # LT-BALD MI
+            if active_method == 'US':
+                results['cand_scores'][cand] = float(_h(eta_c))  # plug-in MAP entropy
             else:
-                Delta_geom = B_LT * (epsilon_t / (1 - epsilon_t))
+                results['cand_scores'][cand] = float(B_LT)
+
+            if epsilon_t >= 1.0:
+                # Unresolved local geometry: radius set to +infinity (draft Eq. 1846).
+                results['cand_errors'][cand] = np.inf
+                continue
+
+            if active_method == 'US':
+                # Plug-in MAP US radius: r_H^MAP = r_geom + r_plug.
+                p_map = eta                                   # H^MAP uses eta only
+                p_lap = eta + 0.5 * c_q                       # Laplace predictive prob
+                p_eff = eta + 0.5 * c_q / (1.0 - epsilon_t)   # effective-covariance version
+                r_geom = abs(_h(p_eff) - _h(p_lap))
+                r_plug = abs(_h(p_lap) - _h(p_map))
+                results['cand_errors'][cand] = r_geom + r_plug
+            else:
+                # BALD resolution radius = functional (Taylor-truncation) term ONLY.
+                #
+                # The geometric term Delta_geom(q) = B_LT(q) * eps/(1-eps) is EXCLUDED:
+                # the covariance inflation Sigma -> Sigma/(1-eps) scales every
+                # candidate's score B_LT(q) = 0.5 var_eta(q)/(eta(1-eta)) by the SAME
+                # factor 1/(1-eps) (var_eta is linear in Sigma; eta depends only on
+                # w_MAP). A common multiplicative rescaling preserves the candidate
+                # ordering and the acquisition argmax (verified: Kendall tau = 1,
+                # ratios = 1/(1-eps) to machine precision), so it cannot render q*
+                # unresolved. Only the functional term, which is nonlinear per
+                # candidate, can change the order; it also diverges as eps -> 1
+                # (via var_eff^2), and eps >= 1 is already capped to +inf above.
                 var_eff = var_eta / (1 - epsilon_t)
-                Tay_coef = (1 - 3*eta + 3*eta**2) / (4 * eta**3 * (1 - eta)**3)
-                Delta_Tay = Tay_coef * (var_eff**2)
-                results['cand_errors'][cand] = abs(Delta_geom) + abs(Delta_Tay)
-                
+                Tay_coef = (1 - 3 * eta_c + 3 * eta_c ** 2) / (4 * eta_c ** 3 * (1 - eta_c) ** 3)
+                Delta_Tay = Tay_coef * (var_eff ** 2)
+                results['cand_errors'][cand] = abs(Delta_Tay)
+
         return results
 
 
